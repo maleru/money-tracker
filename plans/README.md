@@ -6,7 +6,15 @@
 3. [02-phase2-auswertungen.md](02-phase2-auswertungen.md): Schritte 2.1–2.5
 4. [03-phase3-4-import.md](03-phase3-4-import.md): Schritte 3.1–3.6 und 4.1
 5. [04-erweiterungen.md](04-erweiterungen.md): Schritte E1–E5 (Unterkategorien, Umbuchungen, Konten, Umbenennungs-Regeln, robuster DKB-Import, unscharfe Duplikate, Migration auf Schema v2)
-6. [konzept.md](konzept.md): Überblick für Menschen
+6. [05-pdf-analyse.md](05-pdf-analyse.md): Schritte P1–P2 (PDF-Etappe 1: PDF-Analysemodus mit pdf.js, Zeilenrekonstruktion, anonymisierter Export, importiert noch keine Buchungen)
+7. [06-wuensche.md](06-wuensche.md): Schritt W1 (wird **vor** P1 umgesetzt): „Überschuss/Defizit“ statt „Saldo“ bzw. „Ersparnis“, Tagessummen ohne Umbuchungen, ＋ öffnet ein Action Sheet „Buchung erfassen / Importieren“
+8. [konzept.md](konzept.md): Überblick für Menschen
+
+## Vorgemerkte Wünsche
+Alle bisher vorgemerkten Wünsche sind in [06-wuensche.md](06-wuensche.md) geplant (Schritt W1):
+- ~~**Monatsübersicht:** Saldo irreführend~~ → geplant in W1: Kachel „Überschuss“/„Defizit“ mit Hinweis zum laufenden Monat. Ein „Monat ab Gehaltseingang“ ist bewusst nicht vorgesehen.
+- ~~**Statistik „Ersparnis“:** Umbuchungen sind keine Ersparnis~~ → geplant in W1: „Überschuss“/„Defizit“, „davon angelegt“ entfällt. Eine Kategorie bzw. Markierung „zählt als Sparen“ ist bewusst nicht vorgesehen und bei Bedarf später neu vorzumerken.
+- ~~**＋-Button:** direkt zum Import~~ → geplant in W1: Action Sheet mit „✍️ Buchung erfassen“ und „📥 Importieren (Text/Screenshot)“, ohne neues Settings-Feld.
 
 ## Ablauf
 ```mermaid
