@@ -61,3 +61,10 @@ export function signedCents(tx: { type: TxType; amountCents: number; direction?:
   if (tx.type === 'income') return tx.amountCents;
   return tx.direction === 'in' ? tx.amountCents : -tx.amountCents;
 }
+
+/** Beitrag zum Überschuss: income positiv, expense negativ, transfer immer 0 (Umbuchungen sind weder Einnahme noch Ausgabe). */
+export function surplusCents(tx: { type: TxType; amountCents: number; direction?: TxDirection | null }): number {
+  if (tx.type === 'income') return tx.amountCents;
+  if (tx.type === 'expense') return -tx.amountCents;
+  return 0;
+}

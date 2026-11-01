@@ -14,6 +14,7 @@
   import { selectedMonth } from '../lib/state/ui';
   import { budgetStatus } from '../lib/stats/budget';
   import { creditCardReconciliation } from '../lib/stats/creditCard';
+  import { formatSavingsRate, surplusLabel } from '../lib/stats/month';
   import { transferFlows } from '../lib/stats/transfers';
   import { compareCategories, summarizeYear } from '../lib/stats/year';
 
@@ -54,11 +55,7 @@
 
   const budgets = $derived(budgetStatus($transactions, $categories, $selectedMonth));
 
-  const savingsText = $derived(
-    summary.savingsRate === null
-      ? '–'
-      : (summary.savingsRate * 100).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %',
-  );
+  const savingsText = $derived(formatSavingsRate(summary.savingsRate));
 
   interface Trend {
     text: string;
@@ -103,7 +100,7 @@
       <AmountText cents={summary.expenseCents} type="expense" />
     </div>
     <div class="card tile">
-      <span class="muted label">Ersparnis</span>
+      <span class="muted label">{surplusLabel(summary.balanceCents)}</span>
       <AmountText cents={summary.balanceCents} type="balance" />
     </div>
     <div class="card tile">
@@ -115,9 +112,9 @@
       <span class="value">{formatCents(summary.avgMonthlyExpenseCents)}</span>
     </div>
   </div>
-  {#if flows.investedNetCents !== 0}
-    <p class="muted small davon">davon angelegt {formatCents(flows.investedNetCents)}</p>
-  {/if}
+  <p class="muted small tiles-hint">
+    Überschuss = Einnahmen minus Ausgaben, ohne Umbuchungen. Sparquote = Überschuss geteilt durch Einnahmen.
+  </p>
 
   {#if hasReserves}
     <section class="section">
@@ -132,6 +129,7 @@
           <span>{formatCents(flows.investedNetCents, { sign: 'always' })}</span>
         </div>
       </div>
+      <p class="muted hint">Umbuchungen zählen nicht als Einnahmen oder Ausgaben und sind im Überschuss nicht enthalten.</p>
     </section>
   {/if}
 
@@ -196,7 +194,7 @@
             <th scope="col">Monat</th>
             <th scope="col" class="num">Einnahmen</th>
             <th scope="col" class="num">Ausgaben</th>
-            <th scope="col" class="num">Saldo</th>
+            <th scope="col" class="num">Überschuss</th>
           </tr>
         </thead>
         <tbody>
@@ -261,7 +259,7 @@
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
-    margin-bottom: 20px;
+    margin-bottom: 8px;
   }
 
   .tile {
@@ -428,9 +426,8 @@
     align-items: center;
     gap: 10px;
   }
-  .davon {
-    margin: 4px 0 0;
-    text-align: center;
+  .tiles-hint {
+    margin: 0 4px 20px;
   }
 
   .rows {

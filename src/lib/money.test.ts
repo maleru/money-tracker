@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmountToCents, formatCents, signedCents, centsToInput } from './money';
+import { parseAmountToCents, formatCents, signedCents, centsToInput, surplusCents } from './money';
+
+describe('surplusCents', () => {
+  const cases: [Parameters<typeof surplusCents>[0], number][] = [
+    [{ type: 'income', amountCents: 500 }, 500],
+    [{ type: 'expense', amountCents: 500 }, -500],
+    [{ type: 'transfer', amountCents: 500, direction: 'in' }, 0],
+    [{ type: 'transfer', amountCents: 500, direction: 'out' }, 0],
+  ];
+  it.each(cases)('surplusCents(%o) = %i', (tx, expected) => {
+    expect(surplusCents(tx)).toBe(expected);
+  });
+});
 
 const norm = (s: string): string => s.replace(/\s/g, ' ');
 

@@ -5,10 +5,11 @@
   import { selectableAccounts } from '../lib/accounts';
   import { categoryLabel } from '../lib/categoryTree';
   import { dayHeader } from '../lib/dates';
-  import { filterTransactions, groupByDay, sumBalance } from '../lib/filter';
+  import { filterTransactions, groupByDay, hasSurplusItems, sumSurplus } from '../lib/filter';
   import { navigate, route } from '../lib/router';
   import { accountMap, accounts, categoryMap, transactions } from '../lib/state/data';
   import { selectedMonth } from '../lib/state/ui';
+  import { surplusLabel } from '../lib/stats/month';
   import type { TxType } from '../lib/types';
 
   // Die Query wird nur einmalig beim Mount gelesen, danach sind die Filter lokaler Zustand.
@@ -52,7 +53,8 @@
     }),
   );
   const groups = $derived(groupByDay(filtered));
-  const balance = $derived(sumBalance(filtered));
+  const balance = $derived(sumSurplus(filtered));
+  const showTotal = $derived(hasSurplusItems(filtered));
   const accountOptions = $derived(selectableAccounts($accounts, accountId));
 
   const TYPE_OPTIONS: { value: 'all' | TxType; label: string }[] = [
@@ -125,7 +127,9 @@
       <section class="day">
         <div class="day-header">
           <span class="muted">{dayHeader(group.date)}</span>
-          <AmountText cents={group.balanceCents} type="balance" size="sm" />
+          {#if group.hasSurplusItems}
+            <AmountText cents={group.surplusCents} type="balance" size="sm" />
+          {/if}
         </div>
         <div class="list">
           {#each group.items as tx (tx.id)}
@@ -141,9 +145,13 @@
     {/each}
 
     <p class="footer muted">
-      <span>{filtered.length} Buchungen · </span>
-      <AmountText cents={balance} type="balance" size="sm" />
+      <span>{filtered.length} Buchungen</span>
+      {#if showTotal}
+        <span> · {surplusLabel(balance)} </span>
+        <AmountText cents={balance} type="balance" size="sm" />
+      {/if}
     </p>
+    <p class="muted footer-hint">Summen: Einnahmen minus Ausgaben, ohne Umbuchungen.</p>
   {/if}
 </div>
 
@@ -206,5 +214,11 @@
   .footer {
     text-align: center;
     margin: 8px 0 0;
+  }
+
+  .footer-hint {
+    font-size: 13px;
+    text-align: center;
+    margin: 4px 0 0;
   }
 </style>

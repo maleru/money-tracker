@@ -13,8 +13,8 @@ export interface MonthSummary {
   month: string;
   incomeCents: number;
   expenseCents: number;
-  balanceCents: number; // income - expense
-  savingsRate: number | null; // balance / income, null wenn income === 0
+  balanceCents: number; // Überschuss = income - expense; Umbuchungen nicht enthalten
+  savingsRate: number | null; // Überschuss / income, null wenn income === 0
   expenseByCategory: CategoryTotal[]; // absteigend nach totalCents, Gleichstand nach categoryId
   incomeByCategory: CategoryTotal[];
   count: number;
@@ -116,4 +116,15 @@ export function subcategoryBreakdown(txs: Transaction[], rootId: string, cats: C
     addTo(groups, tx.categoryId, tx.amountCents);
   }
   return toTotals(groups, total);
+}
+
+/** Beschriftung der Kennzahl Einnahmen − Ausgaben. 0 zählt als Überschuss. */
+export function surplusLabel(cents: number): 'Überschuss' | 'Defizit' {
+  return cents < 0 ? 'Defizit' : 'Überschuss';
+}
+
+/** "12,5 %" (de-DE, genau eine Nachkommastelle, Leerzeichen vor %); null -> "–" (U+2013). */
+export function formatSavingsRate(rate: number | null): string {
+  if (rate === null) return '–';
+  return (rate * 100).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
 }

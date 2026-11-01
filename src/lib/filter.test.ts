@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterTransactions, groupByDay, sumBalance, type TxFilter } from './filter';
+import { filterTransactions, groupByDay, hasSurplusItems, sumSurplus, type TxFilter } from './filter';
 import type { Category, Transaction, TxType } from './types';
 
 function cat(id: string, name: string, type: TxType): Category {
@@ -178,22 +178,53 @@ describe('filterTransactions E3 (Unterkategorien, Konto, Umbuchung)', () => {
   });
 });
 
-describe('groupByDay / sumBalance', () => {
+describe('groupByDay / sumSurplus', () => {
   it('gruppiert nach Tag in Eingabereihenfolge mit Tagessalden', () => {
     const groups = groupByDay(all);
     expect(groups.map((g) => g.date)).toEqual(['2026-10-21', '2026-10-01', '2026-09-15']);
     expect(groups[0].items).toEqual([rewe, kino]);
-    expect(groups[0].balanceCents).toBe(-5715);
-    expect(groups[1].balanceCents).toBe(250000);
-    expect(groups[2].balanceCents).toBe(-999);
+    expect(groups[0].surplusCents).toBe(-5715);
+    expect(groups[1].surplusCents).toBe(250000);
+    expect(groups[2].surplusCents).toBe(-999);
   });
 
   it('leere Liste ergibt keine Gruppen', () => {
     expect(groupByDay([])).toEqual([]);
   });
 
-  it('sumBalance summiert vorzeichenbehaftet', () => {
-    expect(sumBalance(all)).toBe(-4215 - 1500 + 250000 - 999);
-    expect(sumBalance([])).toBe(0);
+  it('sumSurplus summiert vorzeichenbehaftet', () => {
+    expect(sumSurplus(all)).toBe(-4215 - 1500 + 250000 - 999);
+    expect(sumSurplus([])).toBe(0);
+  });
+
+  describe('Umbuchungen (W1)', () => {
+    const tOut = tx({ type: 'transfer', direction: 'out', amountCents: 50000, date: '2026-10-21', categoryId: 'cat-transfer-savings' });
+    const tIn = tx({ type: 'transfer', direction: 'in', amountCents: 20000, date: '2026-10-02', categoryId: 'cat-transfer-savings' });
+
+    it('Umbuchung ändert die Tagessumme nicht', () => {
+      const groups = groupByDay([rewe, kino, tOut]);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].date).toBe('2026-10-21');
+      expect(groups[0].surplusCents).toBe(-5715);
+      expect(groups[0].hasSurplusItems).toBe(true);
+      expect(groups[0].items).toHaveLength(3);
+    });
+
+    it('Tag nur mit Umbuchung hat Summe 0 und keine Überschuss-Buchungen', () => {
+      const groups = groupByDay([tIn]);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].surplusCents).toBe(0);
+      expect(groups[0].hasSurplusItems).toBe(false);
+    });
+
+    it('sumSurplus ignoriert Umbuchungen', () => {
+      expect(sumSurplus([...all, tOut, tIn])).toBe(-4215 - 1500 + 250000 - 999);
+    });
+
+    it('hasSurplusItems erkennt Einnahmen und Ausgaben', () => {
+      expect(hasSurplusItems([tOut, tIn])).toBe(false);
+      expect(hasSurplusItems([tOut, rewe])).toBe(true);
+      expect(hasSurplusItems([])).toBe(false);
+    });
   });
 });

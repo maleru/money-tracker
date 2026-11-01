@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Transaction, TxType } from '../types';
-import { inMonth, summarizeMonth, summarizeTransactions } from './month';
+import { formatSavingsRate, inMonth, summarizeMonth, summarizeTransactions, surplusLabel } from './month';
 
 let counter = 0;
 function tx(type: TxType, amountCents: number, date: string, categoryId: string): Transaction {
@@ -28,6 +28,45 @@ describe('inMonth', () => {
   it('prüft den Monatsschlüssel', () => {
     expect(inMonth(tx('expense', 100, '2026-10-31', 'a'), '2026-10')).toBe(true);
     expect(inMonth(tx('expense', 100, '2026-11-01', 'a'), '2026-10')).toBe(false);
+  });
+});
+
+describe('surplusLabel', () => {
+  const cases: [number, 'Überschuss' | 'Defizit'][] = [
+    [12345, 'Überschuss'],
+    [0, 'Überschuss'],
+    [-1, 'Defizit'],
+  ];
+  it.each(cases)('surplusLabel(%i) = %s', (cents, expected) => {
+    expect(surplusLabel(cents)).toBe(expected);
+  });
+});
+
+describe('formatSavingsRate', () => {
+  const cases: [number | null, string][] = [
+    [null, '–'],
+    [0.125, '12,5 %'],
+    [0, '0,0 %'],
+    [1, '100,0 %'],
+    [-0.25, '-25,0 %'],
+  ];
+  it.each(cases)('formatSavingsRate(%s) = %s', (rate, expected) => {
+    expect(formatSavingsRate(rate)).toBe(expected);
+  });
+});
+
+describe('summarizeMonth mit Umbuchungen (W1)', () => {
+  it('Überschuss ohne Umbuchungen, Sparquote = Überschuss / Einnahmen', () => {
+    const txs = [
+      tx('income', 300000, '2026-10-31', 'salary'),
+      tx('expense', 100000, '2026-10-05', 'food'),
+      tx('transfer', 50000, '2026-10-21', 'cat-transfer-savings'),
+      tx('transfer', 20000, '2026-10-02', 'cat-transfer-savings'),
+    ];
+    const s = summarizeMonth(txs, '2026-10');
+    expect(s.balanceCents).toBe(200000);
+    expect(s.savingsRate).toBeCloseTo(0.6667, 4);
+    expect(s.count).toBe(4);
   });
 });
 

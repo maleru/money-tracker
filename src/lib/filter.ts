@@ -1,6 +1,6 @@
 import { rootCategoryId } from './categoryTree';
 import { monthKey } from './dates';
-import { centsToInput, signedCents } from './money';
+import { centsToInput, surplusCents } from './money';
 import type { Category, Transaction, TxType } from './types';
 
 export interface TxFilter {
@@ -39,26 +39,33 @@ export function filterTransactions(txs: Transaction[], cats: Map<string, Categor
 export interface DayGroup {
   date: string;
   items: Transaction[];
-  balanceCents: number;
+  surplusCents: number; // Summe surplusCents (Umbuchungen = 0)
+  hasSurplusItems: boolean; // mind. eine Einnahme oder Ausgabe an diesem Tag
 }
 
-/** Behält Eingabereihenfolge (Store ist date desc). balanceCents = Summe signedCents. */
+/** Behält Eingabereihenfolge (Store ist date desc). surplusCents = Einnahmen − Ausgaben des Tages, ohne Umbuchungen. */
 export function groupByDay(txs: Transaction[]): DayGroup[] {
   const groups: DayGroup[] = [];
   const byDate = new Map<string, DayGroup>();
   for (const tx of txs) {
     let group = byDate.get(tx.date);
     if (!group) {
-      group = { date: tx.date, items: [], balanceCents: 0 };
+      group = { date: tx.date, items: [], surplusCents: 0, hasSurplusItems: false };
       byDate.set(tx.date, group);
       groups.push(group);
     }
     group.items.push(tx);
-    group.balanceCents += signedCents(tx);
+    group.surplusCents += surplusCents(tx);
+    if (tx.type !== 'transfer') group.hasSurplusItems = true;
   }
   return groups;
 }
 
-export function sumBalance(txs: Transaction[]): number {
-  return txs.reduce((sum, tx) => sum + signedCents(tx), 0);
+/** Einnahmen − Ausgaben, Umbuchungen nicht enthalten. */
+export function sumSurplus(txs: Transaction[]): number {
+  return txs.reduce((sum, tx) => sum + surplusCents(tx), 0);
+}
+
+export function hasSurplusItems(txs: Transaction[]): boolean {
+  return txs.some((tx) => tx.type !== 'transfer');
 }

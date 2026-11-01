@@ -22,7 +22,7 @@
   import { backupBannerDismissed, selectedMonth } from '../lib/state/ui';
   import { creditCardReconciliation } from '../lib/stats/creditCard';
   import { budgetStatus } from '../lib/stats/budget';
-  import { inMonth, summarizeMonth } from '../lib/stats/month';
+  import { formatSavingsRate, inMonth, summarizeMonth, surplusLabel } from '../lib/stats/month';
   import { transferFlows } from '../lib/stats/transfers';
 
   const FALLBACK_COLOR = '#9ca3af';
@@ -31,7 +31,8 @@
   const summary = $derived(summarizeMonth($transactions, $selectedMonth, $categoryMap));
   const flows = $derived(transferFlows($transactions, $selectedMonth, $categoryMap));
   const cc = $derived(creditCardReconciliation($transactions, $accounts, $selectedMonth, $categoryMap));
-  const planned = $derived($selectedMonth === currentMonthKey() ? plannedThisMonth($recurring, todayIso()) : []);
+  const isCurrentMonth = $derived($selectedMonth === currentMonthKey());
+  const planned = $derived(isCurrentMonth ? plannedThisMonth($recurring, todayIso()) : []);
   const recent = $derived($transactions.filter((tx) => inMonth(tx, $selectedMonth)).slice(0, 5));
   const segments = $derived(
     summary.expenseByCategory.map((c) => ({
@@ -42,11 +43,7 @@
   const budgetById = $derived(
     new Map(budgetStatus($transactions, $categories, $selectedMonth).map((b) => [b.categoryId, b])),
   );
-  const savingsText = $derived(
-    summary.savingsRate === null
-      ? ''
-      : (summary.savingsRate * 100).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %',
-  );
+  const savingsText = $derived(formatSavingsRate(summary.savingsRate));
   const hasReserves = $derived(
     flows.toReservesCents !== 0 ||
       flows.fromReservesCents !== 0 ||
@@ -96,16 +93,16 @@
         <AmountText cents={summary.expenseCents} type="expense" />
       </div>
       <div class="card tile">
-        <span class="muted label">Saldo</span>
+        <span class="muted label">{surplusLabel(summary.balanceCents)}</span>
         <AmountText cents={summary.balanceCents} type="balance" />
         {#if summary.savingsRate !== null}
           <span class="rate" class:expense={summary.savingsRate < 0}>Sparquote {savingsText}</span>
         {/if}
-        {#if flows.investedNetCents !== 0}
-          <span class="muted small">davon angelegt {formatCents(flows.investedNetCents)}</span>
-        {/if}
       </div>
     </div>
+    <p class="muted tiles-hint">
+      Überschuss = Einnahmen minus Ausgaben, ohne Umbuchungen.{#if isCurrentMonth} Laufender Monat: Einnahmen wie das Gehalt können noch fehlen.{/if}
+    </p>
 
     {#if summary.expenseByCategory.length > 0}
       <section class="section">
@@ -163,6 +160,7 @@
             <span>{formatCents(flows.investedNetCents, { sign: 'always' })}</span>
           </div>
         </div>
+        <p class="muted hint">Umbuchungen zählen nicht als Einnahmen oder Ausgaben und sind im Überschuss nicht enthalten.</p>
       </section>
     {/if}
 
@@ -248,7 +246,12 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
     gap: 8px;
-    margin-bottom: 20px;
+    margin-bottom: 8px;
+  }
+
+  .tiles-hint {
+    font-size: 13px;
+    margin: 0 4px 20px;
   }
 
   .tile {
@@ -264,10 +267,6 @@
   }
 
   .rate {
-    font-size: 13px;
-  }
-
-  .small {
     font-size: 13px;
   }
 
