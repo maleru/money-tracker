@@ -1,6 +1,6 @@
 import { todayIso } from '../dates';
 import { normalizeMerchant } from '../merchant';
-import type { Transaction } from '../types';
+import type { Category, Transaction } from '../types';
 import { summarizeTransactions, type CategoryTotal } from './month';
 
 export interface MonthBar {
@@ -78,10 +78,14 @@ function topMerchants(txs: Transaction[], limit: number): MerchantTotal[] {
   return list.slice(0, limit);
 }
 
-export function summarizeYear(txs: Transaction[], year: number): YearSummary {
+export function summarizeYear(
+  txs: Transaction[],
+  year: number,
+  cats: ReadonlyMap<string, Category> = new Map<string, Category>(),
+): YearSummary {
   const prefix = yearPrefix(year);
   const inYear = txs.filter((tx) => tx.date.startsWith(prefix));
-  const total = summarizeTransactions(inYear);
+  const total = summarizeTransactions(inYear, cats);
 
   const months: MonthBar[] = [];
   let monthsWithData = 0;
@@ -89,7 +93,7 @@ export function summarizeYear(txs: Transaction[], year: number): YearSummary {
     const key = prefix + String(m).padStart(2, '0');
     const monthTxs = inYear.filter((tx) => tx.date.startsWith(key));
     if (monthTxs.length > 0) monthsWithData += 1;
-    const s = summarizeTransactions(monthTxs);
+    const s = summarizeTransactions(monthTxs, cats);
     months.push({
       month: key,
       incomeCents: s.incomeCents,

@@ -6,18 +6,32 @@
   import MonthSwitcher from '../components/MonthSwitcher.svelte';
   import TransactionRow from '../components/TransactionRow.svelte';
   import { backupReminder } from '../lib/backup/reminder';
-  import { monthLabel, todayIso } from '../lib/dates';
+  import { childrenOf, categoryLabel } from '../lib/categoryTree';
+  import { currentMonthKey, formatDate, monthLabel, todayIso } from '../lib/dates';
   import { formatCents } from '../lib/money';
+  import { plannedThisMonth } from '../lib/recurring';
   import { navigate } from '../lib/router';
-  import { categories, categoryMap, settings, transactions } from '../lib/state/data';
+  import {
+    accounts,
+    categories,
+    categoryMap,
+    recurring,
+    settings,
+    transactions,
+  } from '../lib/state/data';
   import { backupBannerDismissed, selectedMonth } from '../lib/state/ui';
+  import { creditCardReconciliation } from '../lib/stats/creditCard';
   import { budgetStatus } from '../lib/stats/budget';
   import { inMonth, summarizeMonth } from '../lib/stats/month';
+  import { transferFlows } from '../lib/stats/transfers';
 
   const FALLBACK_COLOR = '#9ca3af';
 
   const reminderText = $derived(backupReminder($settings, $transactions.length, todayIso()));
-  const summary = $derived(summarizeMonth($transactions, $selectedMonth));
+  const summary = $derived(summarizeMonth($transactions, $selectedMonth, $categoryMap));
+  const flows = $derived(transferFlows($transactions, $selectedMonth, $categoryMap));
+  const cc = $derived(creditCardReconciliation($transactions, $accounts, $selectedMonth, $categoryMap));
+  const planned = $derived($selectedMonth === currentMonthKey() ? plannedThisMonth($recurring, todayIso()) : []);
   const recent = $derived($transactions.filter((tx) => inMonth(tx, $selectedMonth)).slice(0, 5));
   const segments = $derived(
     summary.expenseByCategory.map((c) => ({
@@ -33,8 +47,18 @@
       ? ''
       : (summary.savingsRate * 100).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %',
   );
+  const hasReserves = $derived(
+    flows.toReservesCents !== 0 ||
+      flows.fromReservesCents !== 0 ||
+      flows.investedOutCents !== 0 ||
+      flows.investedInCents !== 0,
+  );
 
   function openCategory(id: string): void {
+    if (childrenOf(id, $categories, true).length > 0) {
+      navigate('/category/' + encodeURIComponent(id) + '?month=' + $selectedMonth);
+      return;
+    }
     navigate('/transactions?month=' + $selectedMonth + '&category=' + encodeURIComponent(id));
   }
 </script>
@@ -76,6 +100,9 @@
         <AmountText cents={summary.balanceCents} type="balance" />
         {#if summary.savingsRate !== null}
           <span class="rate" class:expense={summary.savingsRate < 0}>Sparquote {savingsText}</span>
+        {/if}
+        {#if flows.investedNetCents !== 0}
+          <span class="muted small">davon angelegt {formatCents(flows.investedNetCents)}</span>
         {/if}
       </div>
     </div>
@@ -123,14 +150,67 @@
       </section>
     {/if}
 
+    {#if hasReserves}
+      <section class="section">
+        <h2>Rücklagen</h2>
+        <div class="card rows">
+          <div class="row-line"><span>An Rücklagen</span><span>{formatCents(flows.toReservesCents)}</span></div>
+          <div class="row-line"><span>Aus Rücklagen</span><span>{formatCents(flows.fromReservesCents)}</span></div>
+          <div class="row-line"><span>Netto</span><span>{formatCents(flows.netReservesCents, { sign: 'always' })}</span></div>
+          <hr />
+          <div class="row-line strong">
+            <span>Gespart &amp; angelegt</span>
+            <span>{formatCents(flows.investedNetCents, { sign: 'always' })}</span>
+          </div>
+        </div>
+      </section>
+    {/if}
+
+    {#if cc.hasData}
+      <section class="section">
+        <h2>Kreditkarten-Abgleich</h2>
+        <div class="card rows">
+          <div class="row-line"><span>Abgebucht vom Girokonto</span><span>{formatCents(cc.settledCents)}</span></div>
+          <div class="row-line"><span>Kartenumsätze</span><span>{formatCents(cc.cardSpentCents)}</span></div>
+          <div class="row-line strong">
+            <span>Differenz</span>
+            <span>{formatCents(cc.diffCents, { sign: 'always' })}</span>
+          </div>
+        </div>
+        <p class="muted hint">
+          Näherung: Abbuchungen und Kartenumsätze desselben Monats. Format der Kreditkarten-App ggf. später anpassen.
+        </p>
+      </section>
+    {/if}
+
     <section class="section">
       <h2>Letzte Buchungen</h2>
       <div class="list">
         {#each recent as tx (tx.id)}
-          <TransactionRow {tx} category={$categoryMap.get(tx.categoryId)} onclick={() => navigate('/edit/' + tx.id)} />
+          <TransactionRow
+            {tx}
+            category={$categoryMap.get(tx.categoryId)}
+            account={$accounts.find((a) => a.id === tx.accountId)}
+            onclick={() => navigate('/edit/' + tx.id)}
+          />
         {/each}
       </div>
       <p class="all-link"><a href="#/transactions">Alle anzeigen →</a></p>
+    </section>
+  {/if}
+
+  {#if planned.length > 0}
+    <section class="section">
+      <h2>Geplant diesen Monat</h2>
+      <div class="list">
+        {#each planned as p (p.templateId + p.date)}
+          <div class="list-item planned">
+            <span class="muted pdate">{formatDate(p.date)}</span>
+            <span class="pname">{p.merchant || p.note || categoryLabel(p.categoryId, $categoryMap)}</span>
+            <AmountText cents={p.amountCents} type={p.type} direction={p.direction} size="sm" />
+          </div>
+        {/each}
+      </div>
     </section>
   {/if}
 </div>
@@ -187,6 +267,10 @@
     font-size: 13px;
   }
 
+  .small {
+    font-size: 13px;
+  }
+
   .section {
     margin-bottom: 20px;
   }
@@ -225,6 +309,55 @@
     min-width: 44px;
     text-align: right;
     font-size: 14px;
+  }
+
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .row-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .strong {
+    font-weight: 600;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 4px 0;
+  }
+
+  .hint {
+    font-size: 13px;
+    margin: 8px 4px 0;
+  }
+
+  .planned {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .pdate {
+    flex: none;
+    font-size: 13px;
+    min-width: 88px;
+  }
+
+  .pname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .all-link {

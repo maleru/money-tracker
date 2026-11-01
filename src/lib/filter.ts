@@ -1,3 +1,4 @@
+import { rootCategoryId } from './categoryTree';
 import { monthKey } from './dates';
 import { centsToInput, signedCents } from './money';
 import type { Category, Transaction, TxType } from './types';
@@ -8,6 +9,9 @@ export interface TxFilter {
   month: string | null;
   type: 'all' | TxType;
   categoryId: string | null;
+  /** false: categoryId passt auch auf Unterkategorien (rootCategoryId). true: nur exakt. */
+  categoryExact: boolean;
+  accountId: string | null;
   search: string;
 }
 
@@ -20,7 +24,12 @@ export function filterTransactions(txs: Transaction[], cats: Map<string, Categor
       if (!tx.date.startsWith(yearPrefix)) return false;
     } else if (f.month !== null && monthKey(tx.date) !== f.month) return false;
     if (f.type !== 'all' && tx.type !== f.type) return false;
-    if (f.categoryId !== null && tx.categoryId !== f.categoryId) return false;
+    if (f.categoryId !== null) {
+      const matches =
+        tx.categoryId === f.categoryId || (!f.categoryExact && rootCategoryId(tx.categoryId, cats) === f.categoryId);
+      if (!matches) return false;
+    }
+    if (f.accountId !== null && tx.accountId !== f.accountId) return false;
     if (needle === '') return true;
     const haystack = [tx.merchant, tx.note, tx.city, cats.get(tx.categoryId)?.name ?? '', centsToInput(tx.amountCents)];
     return haystack.some((s) => s.toLowerCase().includes(needle));

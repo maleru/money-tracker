@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { get } from 'svelte/store';
-  import CategoryIcon from '../components/CategoryIcon.svelte';
-  import { DEFAULT_ACCOUNT_ID } from '../lib/db/defaults';
+  import { selectableAccounts } from '../lib/accounts';
+  import { childrenOf, rootCategoryId, rootsOf } from '../lib/categoryTree';
+  import { DEFAULT_ACCOUNT_ID, FALLBACK_TRANSFER_CATEGORY } from '../lib/db/defaults';
   import { isValidIsoDate, monthKey, todayIso, yesterdayIso } from '../lib/dates';
   import { merchantSuggestions, proposeCategory } from '../lib/merchant';
   import { centsToInput, parseAmountToCents } from '../lib/money';
   import { back, navigate, route } from '../lib/router';
   import {
+    accounts,
     addTransaction,
     categories,
     categoryMap,
@@ -32,7 +34,9 @@
     ? existing.type
     : untrack(() => $route.query.get('type')) === 'income'
       ? 'income'
-      : 'expense';
+      : untrack(() => $route.query.get('type')) === 'transfer'
+        ? 'transfer'
+        : 'expense';
 
   let type = $state<TxType>(initialType);
   let amount = $state(existing ? centsToInput(existing.amountCents) : '');
@@ -42,6 +46,8 @@
   let date = $state(existing?.date ?? todayIso());
   let categoryId = $state(existing?.categoryId ?? '');
   let categoryTouched = $state(existing !== undefined);
+  let direction = $state<TxDirection>(existing?.direction ?? 'out');
+  let accountId = $state(existing?.accountId ?? DEFAULT_ACCOUNT_ID);
 
   let amountError = $state('');
   let categoryError = $state('');
@@ -74,21 +80,50 @@
   const suggestions = $derived(merchantSuggestions(merchant, $transactions));
   const showSuggestions = $derived(merchantFocused && merchant.trim().length > 0 && suggestions.length > 0);
 
-  const visibleCategories = $derived(
-    $categories.filter(
-      (c) => c.type === type && (!c.archived || (existing !== undefined && c.id === existing.categoryId)),
-    ),
-  );
+  /** Hauptkategorie der gewählten Kategorie (bei Unterkategorie: deren Eltern, sonst die Kategorie selbst). */
+  const selectedRoot = $derived(rootCategoryId(categoryId, $categoryMap));
+
+  /** Reihe 1: aktive Hauptkategorien des Typs; eine archivierte gewählte Hauptkategorie wird zusätzlich angezeigt. */
+  const rootOptions = $derived.by(() => {
+    const roots = rootsOf(type, $categories);
+    const sel = $categoryMap.get(selectedRoot);
+    if (sel && sel.type === type && sel.parentId === null && sel.archived && !roots.some((r) => r.id === sel.id)) {
+      return [...roots, sel];
+    }
+    return roots;
+  });
+
+  /** Reihe 2: aktive Kinder der gewählten Hauptkategorie; ein archiviertes gewähltes Kind wird zusätzlich angezeigt. */
+  const childOptions = $derived.by(() => {
+    if (selectedRoot === '') return [];
+    const kids = childrenOf(selectedRoot, $categories);
+    const sel = $categoryMap.get(categoryId);
+    if (sel && sel.parentId === selectedRoot && sel.archived && !kids.some((k) => k.id === sel.id)) {
+      return [...kids, sel];
+    }
+    return kids;
+  });
+
+  const accountOptions = $derived(selectableAccounts($accounts, accountId));
 
   function setType(next: TxType): void {
     if (type === next) return;
     type = next;
     const current = $categoryMap.get(categoryId);
-    if (!current || current.type !== next) categoryId = '';
+    if (!current || current.type !== next) {
+      // Umbuchungen haben eine feste Standardkategorie; bei den anderen Typen füllt die Automatik nach.
+      categoryId = next === 'transfer' ? FALLBACK_TRANSFER_CATEGORY : '';
+    }
     categoryTouched = false;
   }
 
-  function pickCategory(cid: string): void {
+  function pickRoot(cid: string): void {
+    categoryId = cid;
+    categoryTouched = true;
+    categoryError = '';
+  }
+
+  function pickChild(cid: string): void {
     categoryId = cid;
     categoryTouched = true;
     categoryError = '';
@@ -146,8 +181,8 @@
       amountCents: cents,
       date,
       categoryId,
-      accountId: existing?.accountId ?? DEFAULT_ACCOUNT_ID,
-      direction: null,
+      accountId,
+      direction: type === 'transfer' ? direction : null,
       merchant: merchant.trim(),
       originalText: existing?.originalText ?? '',
       city: city.trim(),
@@ -171,8 +206,8 @@
         type: fields.type,
         amountCents: fields.amountCents,
         categoryId: fields.categoryId,
-        accountId: DEFAULT_ACCOUNT_ID,
-        direction: null,
+        accountId: fields.accountId,
+        direction: fields.direction,
         merchant: fields.merchant,
         note: fields.note,
         dayOfMonth: Number(fields.date.slice(8, 10)),
@@ -256,7 +291,18 @@
       <div class="segmented" role="group" aria-label="Typ">
         <button type="button" class:active={type === 'expense'} onclick={() => setType('expense')}>Ausgabe</button>
         <button type="button" class:active={type === 'income'} onclick={() => setType('income')}>Einnahme</button>
+        <button type="button" class:active={type === 'transfer'} onclick={() => setType('transfer')}>Umbuchung</button>
       </div>
+      {#if type === 'transfer'}
+        <div class="segmented direction" role="group" aria-label="Richtung">
+          <button type="button" class:active={direction === 'out'} onclick={() => (direction = 'out')}>
+            Abgang vom Konto
+          </button>
+          <button type="button" class:active={direction === 'in'} onclick={() => (direction = 'in')}>
+            Zugang aufs Konto
+          </button>
+        </div>
+      {/if}
     </div>
 
     <div class="field">
@@ -301,24 +347,54 @@
 
     <div class="field">
       <span class="label">Kategorie</span>
-      <div class="grid">
-        {#each visibleCategories as c (c.id)}
-          {@const active = c.id === categoryId}
+      <div class="chips">
+        {#each rootOptions as c (c.id)}
           <button
             type="button"
-            class="cat"
-            class:active
-            aria-pressed={active}
-            style:border-color={active ? c.color : null}
-            style:background={active ? c.color + '33' : null}
-            onclick={() => pickCategory(c.id)}
+            class="chip"
+            class:active={c.id === selectedRoot}
+            aria-pressed={c.id === selectedRoot}
+            onclick={() => pickRoot(c.id)}
           >
-            <CategoryIcon category={c} size={32} />
-            <span class="cat-name">{c.name}</span>
+            {c.icon} {c.name}
           </button>
         {/each}
       </div>
+      {#if childOptions.length > 0}
+        <span class="label small muted">Unterkategorie</span>
+        <div class="chips">
+          <button
+            type="button"
+            class="chip"
+            class:active={categoryId === selectedRoot}
+            aria-pressed={categoryId === selectedRoot}
+            onclick={() => pickChild(selectedRoot)}
+          >
+            Allgemein
+          </button>
+          {#each childOptions as k (k.id)}
+            <button
+              type="button"
+              class="chip"
+              class:active={k.id === categoryId}
+              aria-pressed={k.id === categoryId}
+              onclick={() => pickChild(k.id)}
+            >
+              {k.icon} {k.name}{k.archived ? ' (archiviert)' : ''}
+            </button>
+          {/each}
+        </div>
+      {/if}
       {#if categoryError}<span class="error">{categoryError}</span>{/if}
+    </div>
+
+    <div class="field">
+      <label for="tx-account">Konto</label>
+      <select id="tx-account" bind:value={accountId}>
+        {#each accountOptions as a (a.id)}
+          <option value={a.id}>{a.icon} {a.name}{a.archived ? ' (archiviert)' : ''}</option>
+        {/each}
+      </select>
     </div>
 
     <div class="field">
@@ -394,35 +470,18 @@
     margin-top: 2px;
   }
 
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+  .direction {
+    margin-top: 8px;
   }
 
-  .cat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    padding: 8px 4px;
-    background: var(--surface);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
+  .small {
     font-size: 13px;
-    text-align: center;
-  }
-
-  .cat-name {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    margin-top: 4px;
   }
 
   .chips {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
 

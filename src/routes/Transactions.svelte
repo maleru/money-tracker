@@ -2,10 +2,12 @@
   import AmountText from '../components/AmountText.svelte';
   import MonthSwitcher from '../components/MonthSwitcher.svelte';
   import TransactionRow from '../components/TransactionRow.svelte';
+  import { selectableAccounts } from '../lib/accounts';
+  import { categoryLabel } from '../lib/categoryTree';
   import { dayHeader } from '../lib/dates';
   import { filterTransactions, groupByDay, sumBalance } from '../lib/filter';
   import { navigate, route } from '../lib/router';
-  import { categoryMap, transactions } from '../lib/state/data';
+  import { accountMap, accounts, categoryMap, transactions } from '../lib/state/data';
   import { selectedMonth } from '../lib/state/ui';
   import type { TxType } from '../lib/types';
 
@@ -17,16 +19,26 @@
   const initialYear = $route.query.get('year');
   const initialType = $route.query.get('type');
   const initialCategory = $route.query.get('category');
+  const initialAccount = $route.query.get('account');
+  const initialExact = $route.query.get('exact');
 
   // Ist year gesetzt, wird das ganze Jahr gefiltert (statt des Monats). ✕ entfernt den Jahresfilter.
   let year = $state<number | null>(initialYear !== null && /^\d{4}$/.test(initialYear) ? Number(initialYear) : null);
-  let type = $state<'all' | TxType>(initialType === 'expense' || initialType === 'income' ? initialType : 'all');
+  let type = $state<'all' | TxType>(
+    initialType === 'expense' || initialType === 'income' || initialType === 'transfer' ? initialType : 'all',
+  );
   let categoryId = $state<string | null>(initialCategory !== null && initialCategory !== '' ? initialCategory : null);
+  let categoryExact = $state(initialExact === '1');
+  let accountId = $state<string | null>(initialAccount !== null && initialAccount !== '' ? initialAccount : null);
   let search = $state('');
   let allMonths = $state(false);
 
   const hasSearch = $derived(search.trim() !== '');
-  const activeCategory = $derived(categoryId === null ? undefined : $categoryMap.get(categoryId));
+  const activeCategoryLabel = $derived(
+    categoryId === null
+      ? ''
+      : categoryLabel(categoryId, $categoryMap) + (categoryExact ? ' (ohne Unterkategorie)' : ''),
+  );
 
   const filtered = $derived(
     filterTransactions($transactions, $categoryMap, {
@@ -34,16 +46,20 @@
       month: hasSearch && allMonths ? null : $selectedMonth,
       type,
       categoryId,
+      categoryExact,
+      accountId,
       search,
     }),
   );
   const groups = $derived(groupByDay(filtered));
   const balance = $derived(sumBalance(filtered));
+  const accountOptions = $derived(selectableAccounts($accounts, accountId));
 
   const TYPE_OPTIONS: { value: 'all' | TxType; label: string }[] = [
     { value: 'all', label: 'Alle' },
     { value: 'expense', label: 'Ausgaben' },
     { value: 'income', label: 'Einnahmen' },
+    { value: 'transfer', label: 'Umbuchungen' },
   ];
 </script>
 
@@ -85,10 +101,17 @@
       {/each}
     </div>
 
+    <select aria-label="Konto" bind:value={accountId}>
+      <option value="">Alle Konten</option>
+      {#each accountOptions as a (a.id)}
+        <option value={a.id}>{a.icon} {a.name}{a.archived ? ' (archiviert)' : ''}</option>
+      {/each}
+    </select>
+
     {#if categoryId !== null}
       <div>
         <button type="button" class="chip" aria-label="Kategoriefilter entfernen" onclick={() => (categoryId = null)}>
-          <span>{activeCategory ? `${activeCategory.icon} ${activeCategory.name}` : 'Unbekannte Kategorie'}</span>
+          <span>{activeCategoryLabel}</span>
           <span aria-hidden="true">✕</span>
         </button>
       </div>
@@ -106,7 +129,12 @@
         </div>
         <div class="list">
           {#each group.items as tx (tx.id)}
-            <TransactionRow {tx} category={$categoryMap.get(tx.categoryId)} onclick={() => navigate('/edit/' + tx.id)} />
+            <TransactionRow
+              {tx}
+              category={$categoryMap.get(tx.categoryId)}
+              account={$accountMap.get(tx.accountId)}
+              onclick={() => navigate('/edit/' + tx.id)}
+            />
           {/each}
         </div>
       </section>

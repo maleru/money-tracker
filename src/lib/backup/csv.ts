@@ -1,6 +1,6 @@
 import { formatDate } from '../dates';
-import { centsToInput } from '../money';
-import type { Category, Transaction } from '../types';
+import { centsToInput, signedCents } from '../money';
+import type { Category, Transaction, TxType } from '../types';
 
 const BOM = '\uFEFF';
 const SEP = ';';
@@ -12,10 +12,16 @@ function escapeField(value: string): string {
   return value;
 }
 
+const TYPE_LABELS: Record<TxType, string> = {
+  expense: 'Ausgabe',
+  income: 'Einnahme',
+  transfer: 'Umbuchung',
+};
+
 /** Vorzeichenbehafteter Betrag mit Komma, ohne Tausenderpunkt und Währung: -42,15 / 3,00 */
 function amountField(tx: Transaction): string {
-  const text = centsToInput(tx.amountCents);
-  return tx.type === 'expense' ? '-' + text : text;
+  const s = signedCents(tx);
+  return (s < 0 ? '-' : '') + centsToInput(Math.abs(s));
 }
 
 /** Excel-kompatibler CSV-Export (BOM, `;`, `\r\n`), nach Datum aufsteigend sortiert. */
@@ -28,7 +34,7 @@ export function toCsv(txs: Transaction[], cats: Map<string, Category>): string {
     lines.push(
       [
         formatDate(tx.date),
-        tx.type === 'expense' ? 'Ausgabe' : 'Einnahme',
+        TYPE_LABELS[tx.type],
         amountField(tx),
         // PLAN-FRAGE: Für unbekannte Kategorie-IDs ist kein Text vorgegeben; es wird 'Unbekannt' ausgegeben.
         cats.get(tx.categoryId)?.name ?? 'Unbekannt',

@@ -9,6 +9,7 @@
   import Backup from './routes/Backup.svelte';
   import Categories from './routes/Categories.svelte';
   import CategoryForm from './routes/CategoryForm.svelte';
+  import CategoryDrilldown from './routes/CategoryDrilldown.svelte';
   import Import from './routes/Import.svelte';
   import ImportSettings from './routes/ImportSettings.svelte';
   import Lock from './routes/Lock.svelte';
@@ -35,6 +36,7 @@
     { pattern: '/transactions', component: Transactions, withParams: false },
     { pattern: '/add', component: TransactionForm, withParams: true },
     { pattern: '/edit/:id', component: TransactionForm, withParams: true },
+    { pattern: '/category/:id', component: CategoryDrilldown, withParams: true },
     { pattern: '/settings', component: Settings, withParams: false },
     { pattern: '/settings/categories', component: Categories, withParams: false },
     { pattern: '/settings/categories/new', component: CategoryForm, withParams: true },

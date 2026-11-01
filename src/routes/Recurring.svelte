@@ -1,11 +1,15 @@
 <script lang="ts">
   import AmountText from '../components/AmountText.svelte';
   import CategoryIcon from '../components/CategoryIcon.svelte';
-  import { DEFAULT_ACCOUNT_ID } from '../lib/db/defaults';
+  import { selectableAccounts } from '../lib/accounts';
+  import { categoryOptions } from '../lib/categoryTree';
+  import { DEFAULT_ACCOUNT_ID, fallbackCategoryFor } from '../lib/db/defaults';
   import { currentMonthKey } from '../lib/dates';
   import { centsToInput, parseAmountToCents } from '../lib/money';
   import { back } from '../lib/router';
   import {
+    accounts,
+    accountMap,
     categories,
     categoryMap,
     deleteRecurring,
@@ -14,12 +18,14 @@
     saveRecurring,
   } from '../lib/state/data';
   import { showToast } from '../lib/state/toast';
-  import type { RecurringTemplate, TxType } from '../lib/types';
+  import type { RecurringTemplate, TxDirection, TxType } from '../lib/types';
 
   // null = Formular geschlossen, 'new' = neue Vorlage, sonst die id der bearbeiteten Vorlage.
   let editingId = $state<string | null>(null);
 
   let type = $state<TxType>('expense');
+  let direction = $state<TxDirection>('out');
+  let accountId = $state(DEFAULT_ACCOUNT_ID);
   let amount = $state('');
   let categoryId = $state('');
   let merchant = $state('');
@@ -40,10 +46,10 @@
     [...$recurring].sort((a, b) => a.dayOfMonth - b.dayOfMonth || a.merchant.localeCompare(b.merchant, 'de')),
   );
 
-  // Nicht archivierte Kategorien des Typs; beim Bearbeiten bleibt die bisherige Kategorie auswählbar.
-  const selectableCategories = $derived(
-    $categories.filter((c) => c.type === type && (!c.archived || c.id === editing?.categoryId)),
-  );
+  // Flache Optionsliste mit Unterkategorien; beim Bearbeiten bleibt die bisherige Kategorie auswählbar.
+  const categoryChoices = $derived(categoryOptions($categories, type, editing?.categoryId));
+
+  const accountChoices = $derived(selectableAccounts($accounts, accountId));
 
   function clearErrors(): void {
     amountError = '';
@@ -56,6 +62,8 @@
     clearErrors();
     editingId = 'new';
     type = 'expense';
+    direction = 'out';
+    accountId = DEFAULT_ACCOUNT_ID;
     amount = '';
     categoryId = '';
     merchant = '';
@@ -73,6 +81,8 @@
     clearErrors();
     editingId = t.id;
     type = t.type;
+    direction = t.direction ?? 'out';
+    accountId = t.accountId;
     amount = centsToInput(t.amountCents);
     categoryId = t.categoryId;
     merchant = t.merchant;
@@ -86,7 +96,7 @@
     if (type === next) return;
     type = next;
     const current = $categoryMap.get(categoryId);
-    if (!current || current.type !== next) categoryId = '';
+    if (!current || current.type !== next) categoryId = fallbackCategoryFor(next);
   }
 
   function displayName(t: RecurringTemplate): string {
@@ -126,8 +136,8 @@
         type,
         amountCents: cents,
         categoryId,
-        accountId: editing?.accountId ?? DEFAULT_ACCOUNT_ID,
-        direction: editing?.direction ?? null,
+        accountId,
+        direction: type === 'transfer' ? direction : null,
         merchant: merchant.trim(),
         note: note.trim(),
         dayOfMonth: dayValue,
@@ -184,7 +194,18 @@
       <div class="segmented" role="group" aria-label="Typ">
         <button type="button" class:active={type === 'expense'} onclick={() => setType('expense')}>Ausgabe</button>
         <button type="button" class:active={type === 'income'} onclick={() => setType('income')}>Einnahme</button>
+        <button type="button" class:active={type === 'transfer'} onclick={() => setType('transfer')}>Umbuchung</button>
       </div>
+      {#if type === 'transfer'}
+        <div class="segmented direction" role="group" aria-label="Richtung">
+          <button type="button" class:active={direction === 'out'} onclick={() => (direction = 'out')}>
+            Abgang vom Konto
+          </button>
+          <button type="button" class:active={direction === 'in'} onclick={() => (direction = 'in')}>
+            Zugang aufs Konto
+          </button>
+        </div>
+      {/if}
     </div>
 
     <div class="field">
@@ -205,11 +226,20 @@
       <label for="rec-category">Kategorie</label>
       <select id="rec-category" bind:value={categoryId} onchange={() => (categoryError = '')}>
         <option value="">Kategorie wählen…</option>
-        {#each selectableCategories as c (c.id)}
-          <option value={c.id}>{c.icon} {c.name}{c.archived ? ' (archiviert)' : ''}</option>
+        {#each categoryChoices as c (c.id)}
+          <option value={c.id}>{c.label}</option>
         {/each}
       </select>
       {#if categoryError}<span class="error">{categoryError}</span>{/if}
+    </div>
+
+    <div class="field">
+      <label for="rec-account">Konto</label>
+      <select id="rec-account" bind:value={accountId}>
+        {#each accountChoices as a (a.id)}
+          <option value={a.id}>{a.icon} {a.name}{a.archived ? ' (archiviert)' : ''}</option>
+        {/each}
+      </select>
     </div>
 
     <div class="field">
@@ -279,7 +309,7 @@
                 <span class="name">{displayName(t)}</span>
                 <span class="muted sub">monatlich am {t.dayOfMonth}.</span>
               </span>
-              <AmountText cents={t.amountCents} type={t.type} />
+              <AmountText cents={t.amountCents} type={t.type} direction={t.direction} />
             </button>
             <input
               type="checkbox"

@@ -9,9 +9,12 @@
   import { MONTH_SHORT, todayIso } from '../lib/dates';
   import { formatCents } from '../lib/money';
   import { navigate, route } from '../lib/router';
-  import { categories, categoryMap, transactions } from '../lib/state/data';
+  import { childrenOf } from '../lib/categoryTree';
+  import { accounts, categories, categoryMap, transactions } from '../lib/state/data';
   import { selectedMonth } from '../lib/state/ui';
   import { budgetStatus } from '../lib/stats/budget';
+  import { creditCardReconciliation } from '../lib/stats/creditCard';
+  import { transferFlows } from '../lib/stats/transfers';
   import { compareCategories, summarizeYear } from '../lib/stats/year';
 
   const FALLBACK_COLOR = '#9ca3af';
@@ -22,8 +25,16 @@
     initialYear !== null && /^\d{4}$/.test(initialYear) ? Number(initialYear) : Number(todayIso().slice(0, 4)),
   );
 
-  const summary = $derived(summarizeYear($transactions, year));
-  const prevSummary = $derived(summarizeYear($transactions, year - 1));
+  const summary = $derived(summarizeYear($transactions, year, $categoryMap));
+  const prevSummary = $derived(summarizeYear($transactions, year - 1, $categoryMap));
+  const flows = $derived(transferFlows($transactions, String(year), $categoryMap));
+  const cc = $derived(creditCardReconciliation($transactions, $accounts, String(year), $categoryMap));
+  const hasReserves = $derived(
+    flows.toReservesCents !== 0 ||
+      flows.fromReservesCents !== 0 ||
+      flows.investedOutCents !== 0 ||
+      flows.investedInCents !== 0,
+  );
 
   const bars = $derived(
     summary.months.map((m, i) => ({ label: MONTH_SHORT[i], a: m.incomeCents, b: m.expenseCents })),
@@ -69,6 +80,10 @@
   }
 
   function openCategory(id: string): void {
+    if (childrenOf(id, $categories, true).length > 0) {
+      navigate('/category/' + encodeURIComponent(id) + '?year=' + year);
+      return;
+    }
     navigate('/transactions?year=' + year + '&category=' + encodeURIComponent(id));
   }
 </script>
@@ -100,6 +115,42 @@
       <span class="value">{formatCents(summary.avgMonthlyExpenseCents)}</span>
     </div>
   </div>
+  {#if flows.investedNetCents !== 0}
+    <p class="muted small davon">davon angelegt {formatCents(flows.investedNetCents)}</p>
+  {/if}
+
+  {#if hasReserves}
+    <section class="section">
+      <h2>Rücklagen {year}</h2>
+      <div class="card rows">
+        <div class="row-line"><span>An Rücklagen</span><span>{formatCents(flows.toReservesCents)}</span></div>
+        <div class="row-line"><span>Aus Rücklagen</span><span>{formatCents(flows.fromReservesCents)}</span></div>
+        <div class="row-line"><span>Netto</span><span>{formatCents(flows.netReservesCents, { sign: 'always' })}</span></div>
+        <hr />
+        <div class="row-line strong">
+          <span>Gespart &amp; angelegt</span>
+          <span>{formatCents(flows.investedNetCents, { sign: 'always' })}</span>
+        </div>
+      </div>
+    </section>
+  {/if}
+
+  {#if cc.hasData}
+    <section class="section">
+      <h2>Kreditkarten-Abgleich {year}</h2>
+      <div class="card rows">
+        <div class="row-line"><span>Abgebucht vom Girokonto</span><span>{formatCents(cc.settledCents)}</span></div>
+        <div class="row-line"><span>Kartenumsätze</span><span>{formatCents(cc.cardSpentCents)}</span></div>
+        <div class="row-line strong">
+          <span>Differenz</span>
+          <span>{formatCents(cc.diffCents, { sign: 'always' })}</span>
+        </div>
+      </div>
+      <p class="muted hint">
+        Näherung: Abbuchungen und Kartenumsätze desselben Jahres. Format der Kreditkarten-App ggf. später anpassen.
+      </p>
+    </section>
+  {/if}
 
   <section class="section">
     <div class="card">
@@ -376,5 +427,38 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  .davon {
+    margin: 4px 0 0;
+    text-align: center;
+  }
+
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .row-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .strong {
+    font-weight: 600;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 4px 0;
+  }
+
+  .hint {
+    font-size: 13px;
+    margin: 8px 4px 0;
   }
 </style>

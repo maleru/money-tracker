@@ -48,7 +48,15 @@ const lohn = tx({ type: 'income', amountCents: 250000, date: '2026-10-01', categ
 const alt = tx({ type: 'expense', amountCents: 999, date: '2026-09-15', categoryId: 'food', merchant: 'Bäcker' });
 const all = [rewe, kino, lohn, alt];
 
-const base: TxFilter = { year: null, month: null, type: 'all', categoryId: null, search: '' };
+const base: TxFilter = {
+  year: null,
+  month: null,
+  type: 'all',
+  categoryId: null,
+  categoryExact: false,
+  accountId: null,
+  search: '',
+};
 const alt2025 = tx({ type: 'expense', amountCents: 500, date: '2025-12-31', categoryId: 'food', merchant: 'Silvester' });
 
 describe('filterTransactions', () => {
@@ -72,7 +80,15 @@ describe('filterTransactions', () => {
 
   it('kombiniert Filter', () => {
     expect(
-      filterTransactions(all, cats, { year: null, month: '2026-10', type: 'expense', categoryId: 'food', search: '' }),
+      filterTransactions(all, cats, {
+        year: null,
+        month: '2026-10',
+        type: 'expense',
+        categoryId: 'food',
+        categoryExact: false,
+        accountId: null,
+        search: '',
+      }),
     ).toEqual([rewe]);
   });
 
@@ -116,6 +132,49 @@ describe('filterTransactions', () => {
 
   it('ignoriert Leerzeichen um den Suchtext', () => {
     expect(filterTransactions(all, cats, { ...base, search: '  rewe ' })).toEqual([rewe]);
+  });
+});
+
+describe('filterTransactions E3 (Unterkategorien, Konto, Umbuchung)', () => {
+  const bakery = tx({ type: 'expense', amountCents: 500, date: '2026-10-04', categoryId: 'food-bakery', merchant: 'Bäcker' });
+  const transfer = tx({
+    type: 'transfer',
+    direction: 'out',
+    amountCents: 2000,
+    date: '2026-10-02',
+    categoryId: 'cat-transfer-savings',
+    merchant: 'Sparen',
+  });
+  const card = tx({
+    type: 'expense',
+    amountCents: 5000,
+    date: '2026-10-05',
+    categoryId: 'fun',
+    accountId: 'acc-credit-card',
+    merchant: 'Kartenumsatz',
+  });
+  const e3cats = new Map<string, Category>([
+    ...cats,
+    ['food-bakery', { ...cat('food-bakery', 'Bäckerei', 'expense'), parentId: 'food' }],
+    ['cat-transfer-savings', cat('cat-transfer-savings', 'Tagesgeld', 'transfer')],
+  ]);
+  const e3all = [rewe, bakery, transfer, card];
+
+  it('type transfer liefert nur Umbuchungen', () => {
+    expect(filterTransactions(e3all, e3cats, { ...base, type: 'transfer' })).toEqual([transfer]);
+  });
+
+  it('Kategorie ohne exact schließt Unterkategorien ein', () => {
+    expect(filterTransactions(e3all, e3cats, { ...base, categoryId: 'food' })).toEqual([rewe, bakery]);
+  });
+
+  it('Kategorie mit categoryExact nur exakt', () => {
+    expect(filterTransactions(e3all, e3cats, { ...base, categoryId: 'food', categoryExact: true })).toEqual([rewe]);
+    expect(filterTransactions(e3all, e3cats, { ...base, categoryId: 'food-bakery', categoryExact: true })).toEqual([bakery]);
+  });
+
+  it('Konto-Filter', () => {
+    expect(filterTransactions(e3all, e3cats, { ...base, accountId: 'acc-credit-card' })).toEqual([card]);
   });
 });
 

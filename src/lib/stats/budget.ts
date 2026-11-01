@@ -1,3 +1,4 @@
+import { rootCategoryId } from '../categoryTree';
 import type { Category, Transaction } from '../types';
 import { inMonth } from './month';
 
@@ -11,15 +12,17 @@ export interface BudgetStatus {
 
 /** Für alle nicht archivierten Ausgaben-Kategorien mit monthlyBudgetCents != null. ratio = spent/budget; level ok <0.8, warn 0.8..1.0 (inkl. 1.0), over >1.0. Sortiert nach sortOrder. */
 export function budgetStatus(txs: Transaction[], cats: Category[], month: string): BudgetStatus[] {
+  const map = new Map(cats.map((c) => [c.id, c]));
   const spent = new Map<string, number>();
   for (const tx of txs) {
     if (tx.type !== 'expense' || !inMonth(tx, month)) continue;
-    spent.set(tx.categoryId, (spent.get(tx.categoryId) ?? 0) + tx.amountCents);
+    const root = rootCategoryId(tx.categoryId, map);
+    spent.set(root, (spent.get(root) ?? 0) + tx.amountCents);
   }
 
   const result: BudgetStatus[] = [];
   const budgeted = cats
-    .filter((c) => c.type === 'expense' && !c.archived && c.monthlyBudgetCents !== null)
+    .filter((c) => c.type === 'expense' && c.parentId === null && !c.archived && c.monthlyBudgetCents !== null)
     .sort((a, b) => a.sortOrder - b.sortOrder);
   for (const c of budgeted) {
     const budgetCents = c.monthlyBudgetCents;
