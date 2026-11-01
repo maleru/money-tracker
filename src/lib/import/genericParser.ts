@@ -45,6 +45,7 @@ export function parseGeneric(text: string): ParseResult {
       merchant,
       city: '',
       bankType: '',
+      pending: false,
       raw: line,
     });
   }

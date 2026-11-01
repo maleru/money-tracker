@@ -19,6 +19,7 @@ function row(over: Partial<ParsedRow> = {}): ParsedRow {
     merchant: 'Aldi',
     city: 'Berlin',
     bankType: 'Kartenzahlung',
+    pending: false,
     raw: '',
     ...over,
   };

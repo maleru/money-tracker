@@ -11,6 +11,7 @@ export interface ParsedRow {
   merchant: string;
   city: string;
   bankType: string; // z.B. 'Kartenzahlung', '' wenn unbekannt
+  pending: boolean; // true bei 'Vorgemerkt'
   raw: string; // Originalzeilen, für Anzeige bei Problemen
 }
 

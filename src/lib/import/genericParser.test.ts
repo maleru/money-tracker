@@ -13,6 +13,7 @@ describe('parseGeneric', () => {
       merchant: 'Aldi Süd',
       city: '',
       bankType: '',
+      pending: false,
     });
   });
 
