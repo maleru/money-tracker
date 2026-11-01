@@ -4,9 +4,12 @@ import { lastCategoryForMerchant, suggestCategory } from '../merchant';
 import { parseDkb } from './dkbParser';
 import { parseGeneric } from './genericParser';
 
+/** Typ einer geparsten Zeile: Ausgabe oder Einnahme (Umbuchungen entstehen erst im Import). */
+export type ParsedType = 'expense' | 'income';
+
 export interface ParsedRow {
   date: string; // YYYY-MM-DD
-  type: TxType;
+  type: ParsedType;
   amountCents: number;
   merchant: string;
   city: string;

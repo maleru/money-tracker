@@ -297,7 +297,7 @@ export function runRecurring(): Promise<number> {
   inflight = (async (): Promise<number> => {
     const e = epoch;
     const now = new Date().toISOString();
-    const { newTx, updated } = generateDue(get(recurring), todayIso(), now);
+    const { newTx, updated } = generateDue(get(recurring), todayIso(), now, get(transactions));
     if (newTx.length === 0 && updated.length === 0) return 0;
     await addTransactions(newTx);
     for (const t of updated) {

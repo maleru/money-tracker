@@ -1,8 +1,11 @@
-import { addMonths, daysInMonth, monthKey } from './dates';
-import type { RecurringTemplate, TxDirection, TxInput, TxType } from './types';
+import { addMonths, daysBetween, daysInMonth, monthKey } from './dates';
+import type { RecurringTemplate, Transaction, TxDirection, TxInput, TxType } from './types';
 
 /** Schutz gegen Endlosschleifen bei absurden Startmonaten: maximal so viele Monate pro Vorlage und Aufruf. */
 export const MAX_MONTHS_PER_RUN = 120;
+
+/** Toleranz in Tagen, innerhalb der eine manuell erfasste Buchung als Erzeugung dieser Vorlage gilt. */
+const SKIP_TOLERANCE_DAYS = 5;
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -61,15 +64,54 @@ export function plannedThisMonth(templates: RecurringTemplate[], today: string):
   return items;
 }
 
-/** Liefert neu zu erzeugende Buchungen + aktualisierte Templates (lastGeneratedMonth). Erzeugt nichts in der Zukunft. */
+/**
+ * Sucht die bestehende, noch nicht verbrauchte Buchung mit dem kleinsten Abstand zum Termin, die als Erzeugung
+ * dieser Vorlage gilt, und verbraucht sie. Gibt true zurück, wenn eine Buchung gefunden wurde.
+ */
+function consumeMatch(
+  t: RecurringTemplate,
+  date: string,
+  existing: Transaction[],
+  used: Set<string>,
+): boolean {
+  let best: Transaction | null = null;
+  let bestDist = Infinity;
+  for (const tx of existing) {
+    if (used.has(tx.id)) continue;
+    if (tx.recurringId !== null) continue;
+    if (tx.type !== t.type) continue;
+    if ((tx.direction ?? null) !== (t.direction ?? null)) continue;
+    if (tx.amountCents !== t.amountCents) continue;
+    if (tx.accountId !== t.accountId) continue;
+    const dist = Math.abs(daysBetween(date, tx.date));
+    if (dist > SKIP_TOLERANCE_DAYS) continue;
+    if (dist < bestDist) {
+      best = tx;
+      bestDist = dist;
+    }
+  }
+  if (best === null) return false;
+  used.add(best.id);
+  return true;
+}
+
+/**
+ * Liefert neu zu erzeugende Buchungen + aktualisierte Templates (lastGeneratedMonth). Erzeugt nichts in der Zukunft.
+ * Recurring-Skip: Für jeden fälligen Termin wird keine Buchung erzeugt, wenn in existing eine noch nicht verbrauchte
+ * Buchung passt (recurringId null, gleicher Typ, gleiche Richtung, gleicher Betrag, gleiches Konto, Abstand <= 5 Tage).
+ * Die Buchung mit dem kleinsten Abstand wird verbraucht (über alle Vorlagen eines Aufrufs). Der Monat gilt trotzdem
+ * als generiert.
+ */
 export function generateDue(
   templates: RecurringTemplate[],
   today: string,
   now: string,
+  existing: Transaction[],
 ): { newTx: TxInput[]; updated: RecurringTemplate[] } {
   const newTx: TxInput[] = [];
   const updated: RecurringTemplate[] = [];
   const currentMonth = monthKey(today);
+  const used = new Set<string>();
 
   for (const t of templates) {
     if (!t.active) continue;
@@ -85,20 +127,22 @@ export function generateDue(
       const date = `${month}-${pad2(day)}`;
       if (date > today) break;
 
-      newTx.push({
-        type: t.type,
-        amountCents: t.amountCents,
-        date,
-        categoryId: t.categoryId,
-        accountId: t.accountId,
-        direction: t.direction,
-        merchant: t.merchant,
-        originalText: '',
-        city: '',
-        note: t.note,
-        source: 'recurring',
-        recurringId: t.id,
-      });
+      if (!consumeMatch(t, date, existing, used)) {
+        newTx.push({
+          type: t.type,
+          amountCents: t.amountCents,
+          date,
+          categoryId: t.categoryId,
+          accountId: t.accountId,
+          direction: t.direction,
+          merchant: t.merchant,
+          originalText: '',
+          city: '',
+          note: t.note,
+          source: 'recurring',
+          recurringId: t.id,
+        });
+      }
       lastGenerated = month;
       month = addMonths(month, 1);
       steps += 1;

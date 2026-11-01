@@ -1,40 +1,54 @@
-/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { defaultCategories, defaultRules } from '../db/defaults';
-import type { Transaction } from '../types';
-import { buildImportItems, itemsToTxInputs, newestDate } from './importItems';
-import { parseBankText } from './parse';
-import type { ParsedRow } from './parse';
+import { defaultAccounts, defaultCategories, defaultRules } from '../db/defaults';
+import type { MerchantRule, Transaction } from '../types';
+import { parseDkb } from './dkbParser';
+import {
+  buildImportItems,
+  classifyRow,
+  itemsToTxInputs,
+  newestDate,
+  suggestForEdit,
+  type ImportContext,
+} from './importItems';
 
-const NOW = '2026-10-01T00:00:00.000Z';
+const NOW = '2026-11-01T12:00:00.000Z';
+const fixtureNov = readFileSync(new URL('./__fixtures__/dkb-november.txt', import.meta.url), 'utf8');
+
 const cats = defaultCategories(NOW);
-const rules = defaultRules(NOW);
+const accounts = defaultAccounts(NOW);
 
-function row(over: Partial<ParsedRow> = {}): ParsedRow {
+const customRule: MerchantRule = {
+  id: 'u1',
+  pattern: 'ERIKA UND HANS MUSTER',
+  categoryId: 'cat-housing-rent',
+  displayName: 'Miete Wohnung',
+  source: 'manual',
+  updatedAt: NOW,
+};
+
+function ctx(over: Partial<ImportContext> = {}): ImportContext {
   return {
-    date: '2026-10-21',
-    type: 'expense',
-    amountCents: 700,
-    merchant: 'Aldi',
-    city: 'Berlin',
-    bankType: 'Kartenzahlung',
-    pending: false,
-    raw: '',
+    txs: [],
+    rules: [...defaultRules(NOW), customRule],
+    cats,
+    account: accounts[0],
+    ownNames: ['Max Mustermann'],
     ...over,
   };
 }
 
-function tx(over: Partial<Transaction> = {}): Transaction {
+const rows = parseDkb(fixtureNov).rows;
+
+function existingTx(over: Partial<Transaction> & { id: string }): Transaction {
   return {
-    id: 't1',
     type: 'expense',
-    amountCents: 700,
-    date: '2026-10-21',
+    amountCents: 1000,
+    date: '2026-10-01',
     categoryId: 'cat-groceries',
     accountId: 'acc-checking',
     direction: null,
-    merchant: 'Aldi',
+    merchant: 'X',
     originalText: '',
     city: '',
     note: '',
@@ -46,92 +60,145 @@ function tx(over: Partial<Transaction> = {}): Transaction {
   };
 }
 
-describe('buildImportItems', () => {
-  it('wählt Duplikate ab und markiert sie', () => {
-    const rows = [row(), row({ merchant: 'Rewe', amountCents: 900 })];
-    const items = buildImportItems(rows, [tx()], rules, cats);
-    expect(items.map((i) => i.duplicate)).toEqual([true, false]);
-    expect(items.map((i) => i.selected)).toEqual([false, true]);
+describe('Klassifizierung der November-Fixture (Girokonto)', () => {
+  const items = buildImportItems(rows, ctx());
+
+  const EXPECTED: { merchant: string; type: string; direction: string | null; categoryId: string; transferDetected: boolean }[] = [
+    { merchant: 'CITYfit Fitness- und Gesund-heitsclub Musterstadt GmbH', type: 'expense', direction: null, categoryId: 'cat-memberships', transferDetected: false },
+    { merchant: 'ARAG SE', type: 'expense', direction: null, categoryId: 'cat-insurance', transferDetected: false },
+    { merchant: 'Miete Wohnung', type: 'expense', direction: null, categoryId: 'cat-housing-rent', transferDetected: false },
+    { merchant: 'REWE', type: 'expense', direction: null, categoryId: 'cat-groceries-supermarket', transferDetected: false },
+    { merchant: 'REWE', type: 'expense', direction: null, categoryId: 'cat-groceries-supermarket', transferDetected: false },
+    { merchant: 'KANTINE MUSTERSTADT M211', type: 'expense', direction: null, categoryId: 'cat-other-expense', transferDetected: false },
+    { merchant: 'BrotHaus', type: 'expense', direction: null, categoryId: 'cat-groceries-bakery', transferDetected: false },
+    { merchant: 'Muster Aktiengesellschaft', type: 'expense', direction: null, categoryId: 'cat-other-expense', transferDetected: false },
+    { merchant: "L'Osteria", type: 'expense', direction: null, categoryId: 'cat-other-expense', transferDetected: false },
+    { merchant: 'BrotHaus', type: 'expense', direction: null, categoryId: 'cat-groceries-bakery', transferDetected: false },
+    { merchant: 'REWE', type: 'expense', direction: null, categoryId: 'cat-groceries-supermarket', transferDetected: false },
+    { merchant: 'Max Mustermann', type: 'transfer', direction: 'in', categoryId: 'cat-transfer-savings', transferDetected: true },
+    { merchant: 'Lidl', type: 'expense', direction: null, categoryId: 'cat-groceries-supermarket', transferDetected: false },
+    { merchant: 'Vodafone GmbH', type: 'expense', direction: null, categoryId: 'cat-telecom', transferDetected: false },
+    { merchant: 'Spotify', type: 'expense', direction: null, categoryId: 'cat-subscriptions', transferDetected: false },
+  ];
+
+  it('liefert 15 Zeilen und die erwartete Tabelle', () => {
+    expect(items.map((i) => ({
+      merchant: i.merchant,
+      type: i.type,
+      direction: i.direction,
+      categoryId: i.categoryId,
+      transferDetected: i.transferDetected,
+    }))).toEqual(EXPECTED);
   });
 
-  it('schlägt die Kategorie vor und vergibt index-basierte Keys', () => {
-    const items = buildImportItems([row(), row({ merchant: 'Unbekannt' })], [], rules, cats);
-    expect(items[0].categoryId).toBe('cat-groceries-supermarket');
-    expect(items[1].categoryId).toBe('cat-other-expense');
-    expect(items[0].categoryTouched).toBe(false);
-    expect(items[0].key).not.toBe(items[1].key);
-  });
-});
-
-describe('itemsToTxInputs', () => {
-  it('übernimmt nur ausgewählte Items mit korrekten Feldern', () => {
-    const items = buildImportItems([row(), row({ merchant: 'Rewe', amountCents: 900 })], [tx()], rules, cats);
-    expect(itemsToTxInputs(items, 'text')).toEqual([
-      {
-        type: 'expense',
-        amountCents: 900,
-        date: '2026-10-21',
-        categoryId: items[1].categoryId,
-        accountId: 'acc-checking',
-        direction: null,
-        merchant: 'Rewe',
-        originalText: 'Rewe',
-        city: 'Berlin',
-        note: '',
-        source: 'text',
-        recurringId: null,
-      },
-    ]);
+  it('alle Zeilen sind ausgewählt und ohne Duplikat', () => {
+    expect(items.every((i) => i.selected && i.dup.kind === 'none')).toBe(true);
   });
 
-  it('übergibt die Quelle ocr', () => {
-    const items = buildImportItems([row()], [], rules, cats);
-    expect(itemsToTxInputs(items, 'ocr')[0].source).toBe('ocr');
-  });
-
-  it('liefert eine leere Liste ohne Auswahl', () => {
-    const items = buildImportItems([row()], [], rules, cats).map((i) => ({ ...i, selected: false }));
-    expect(itemsToTxInputs(items, 'text')).toEqual([]);
+  it('Zeile 3 hat den Originaltext über row.merchant erhalten', () => {
+    expect(items[2].row.merchant).toBe('Erika und Hans Muster');
   });
 });
 
-describe('newestDate', () => {
-  it('liefert das neueste Datum der ausgewählten Items', () => {
-    const items = buildImportItems(
-      [row({ date: '2026-10-05' }), row({ date: '2026-10-19', merchant: 'A' }), row({ date: '2026-10-30', merchant: 'B' })],
-      [],
-      rules,
-      cats,
-    );
-    items[2].selected = false;
-    expect(newestDate(items)).toBe('2026-10-19');
+describe('classifyRow und Import-Regeln', () => {
+  it('Nutzerregel gewinnt vor der Heuristik für eigene Namen', () => {
+    const rule: MerchantRule = {
+      id: 'u2',
+      pattern: 'MAX MUSTERMANN',
+      categoryId: 'cat-salary',
+      displayName: null,
+      source: 'manual',
+      updatedAt: NOW,
+    };
+    const item = buildImportItems([rows[11]], ctx({ rules: [rule] }))[0];
+    expect(item.type).toBe('income');
+    expect(item.categoryId).toBe('cat-salary');
+    expect(item.transferDetected).toBe(false);
   });
 
-  it('liefert null ohne ausgewählte Items', () => {
-    expect(newestDate([])).toBeNull();
-    const items = buildImportItems([row()], [], rules, cats).map((i) => ({ ...i, selected: false }));
-    expect(newestDate(items)).toBeNull();
+  it('Transfer-Regel ergibt Umbuchung je nach Vorzeichen', () => {
+    const rule: MerchantRule = {
+      id: 'u3',
+      pattern: 'TRADE REPUBLIC',
+      categoryId: 'cat-transfer-invest',
+      displayName: null,
+      source: 'manual',
+      updatedAt: NOW,
+    };
+    const base = { date: '2026-10-05', city: '', bankType: 'Kartenzahlung', pending: false, raw: '', amountCents: 2000, merchant: 'Trade Republic' };
+    const out = classifyRow({ ...base, type: 'expense' }, ctx({ rules: [rule] }));
+    expect(out).toMatchObject({ type: 'transfer', direction: 'out', categoryId: 'cat-transfer-invest' });
+    const inn = classifyRow({ ...base, type: 'income' }, ctx({ rules: [rule] }));
+    expect(inn).toMatchObject({ type: 'transfer', direction: 'in', categoryId: 'cat-transfer-invest' });
+  });
+
+  it('Kreditkarten-Konto: Eingang ist Einnahme über Heuristik, keine Umbuchung', () => {
+    const item = buildImportItems([rows[11]], ctx({ account: accounts[1] }))[0];
+    expect(item.type).toBe('income');
+    expect(item.categoryId).toBe('cat-refund');
+    expect(item.transferDetected).toBe(false);
+  });
+
+  it('exaktes Duplikat wird abgewählt', () => {
+    const tx = existingTx({
+      id: 'T1',
+      type: 'transfer',
+      direction: 'in',
+      date: '2026-10-26',
+      amountCents: 300000,
+      merchant: 'Max Mustermann',
+      originalText: 'Max Mustermann',
+      categoryId: 'cat-transfer-savings',
+    });
+    const item = buildImportItems([rows[11]], ctx({ txs: [tx] }))[0];
+    expect(item.dup.kind).toBe('exact');
+    expect(item.selected).toBe(false);
+  });
+
+  it('Recurring-Duplikat wird abgewählt', () => {
+    const tx = existingTx({
+      id: 'R1',
+      date: '2026-11-01',
+      amountCents: 112000,
+      merchant: 'Miete',
+      recurringId: 'rec-1',
+      categoryId: 'cat-housing-rent',
+    });
+    const item = buildImportItems([rows[2]], ctx({ txs: [tx] }))[0];
+    expect(item.dup.kind).toBe('recurring');
+    expect(item.selected).toBe(false);
   });
 });
 
-describe('Integration mit DKB-Fixture', () => {
-  it('erzeugt 9 Items mit den erwarteten Kategorien', () => {
-    const text = readFileSync(new URL('./__fixtures__/dkb-oktober.txt', import.meta.url), 'utf8');
-    const { rows } = parseBankText(text);
-    const items = buildImportItems(rows, [], rules, cats);
-    expect(items).toHaveLength(9);
-    expect(items.every((i) => i.selected && !i.duplicate)).toBe(true);
-    expect(items.map((i) => [i.row.merchant, i.categoryId])).toEqual([
-      ['Lidl', 'cat-groceries-supermarket'],
-      ['Vodafone GmbH', 'cat-telecom'],
-      ['Spotify', 'cat-subscriptions'],
-      ['DM', 'cat-drugstore'],
-      ['Spotify', 'cat-subscriptions'],
-      ['Fashion Outlet Center', 'cat-clothing'],
-      ['Parken City Garage', 'cat-mobility'],
-      ['Kantine Nord Gastronomie Gmb', 'cat-refund'],
-      ['BAECKEREI SONNE', 'cat-groceries-bakery'],
-    ]);
-    expect(newestDate(items)).toBe('2026-10-21');
+describe('itemsToTxInputs, suggestForEdit, newestDate', () => {
+  const items = buildImportItems(rows, ctx());
+
+  it('übernimmt Anzeige-Händler und Originaltext, Umbuchung mit Richtung', () => {
+    const inputs = itemsToTxInputs(items, 'text', 'acc-checking');
+    expect(inputs[2]).toMatchObject({ merchant: 'Miete Wohnung', originalText: 'Erika und Hans Muster', accountId: 'acc-checking' });
+    expect(inputs[11]).toMatchObject({ type: 'transfer', direction: 'in' });
+  });
+
+  it('liefert nur ausgewählte Items', () => {
+    const selectedOff = items.map((i, idx) => (idx === 0 ? { ...i, selected: false } : i));
+    expect(itemsToTxInputs(selectedOff, 'text', 'acc-checking')).toHaveLength(14);
+  });
+
+  it('suggestForEdit: Bäckerei-Name ergibt Bäckerei-Kategorie', () => {
+    const item = { ...items[5], merchant: 'BAECKEREI SONNE', type: 'expense' as const };
+    expect(suggestForEdit(item, ctx())).toBe('cat-groceries-bakery');
+  });
+
+  it('suggestForEdit: Umbuchung ohne Regel ergibt Eigene Konten', () => {
+    const item = { ...items[5], type: 'transfer' as const, direction: 'out' as const };
+    expect(suggestForEdit(item, ctx())).toBe('cat-transfer-own');
+  });
+
+  it('newestDate liefert das neueste ausgewählte Datum', () => {
+    expect(newestDate(items)).toBe('2026-11-02');
+  });
+
+  it('newestDate ist null, wenn alles abgewählt ist', () => {
+    expect(newestDate(items.map((i) => ({ ...i, selected: false })))).toBeNull();
   });
 });
