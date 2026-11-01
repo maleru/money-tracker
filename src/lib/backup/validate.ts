@@ -1,11 +1,14 @@
 import { isValidIsoDate } from '../dates';
 import type {
+  Account,
+  AccountKind,
   AppData,
   Category,
   MerchantRule,
   RecurringTemplate,
   Settings,
   Transaction,
+  TxDirection,
   TxSource,
   TxType,
 } from '../types';
@@ -21,7 +24,9 @@ const MAX_CENTS = 9_999_999_999;
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
-const TX_TYPES: readonly TxType[] = ['expense', 'income'];
+const TX_TYPES: readonly TxType[] = ['expense', 'income', 'transfer'];
+const DIRECTIONS: readonly TxDirection[] = ['in', 'out'];
+const ACCOUNT_KINDS: readonly AccountKind[] = ['checking', 'credit_card', 'savings', 'other'];
 const TX_SOURCES: readonly TxSource[] = ['manual', 'text', 'ocr', 'recurring'];
 const RULE_SOURCES: readonly MerchantRule['source'][] = ['default', 'learned', 'manual'];
 const AUTO_LOCK_VALUES: readonly Settings['autoLockMinutes'][] = [0, 1, 5, 15];
@@ -68,6 +73,21 @@ function oneOf<T extends string | number>(o: Obj, key: string, path: string, all
 function nullable<T>(o: Obj, key: string, path: string, read: (o: Obj, key: string, path: string) => T): T | null {
   if (o[key] === null) return null;
   return read(o, key, path);
+}
+
+function strArray(o: Obj, key: string, path: string, maxItems: number): string[] {
+  const v = o[key];
+  if (!Array.isArray(v) || v.length > maxItems) fail(`${path}.${key}`);
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item !== 'string') fail(`${path}.${key}`);
+    out.push(item);
+  }
+  return out;
+}
+
+function direction(o: Obj, key: string, path: string): TxDirection {
+  return oneOf(o, key, path, DIRECTIONS);
 }
 
 function amountCents(o: Obj, key: string, path: string): number {
@@ -126,7 +146,10 @@ function readTransaction(o: Obj, p: string): Transaction {
     amountCents: amountCents(o, 'amountCents', p),
     date: isoDate(o, 'date', p),
     categoryId: str(o, 'categoryId', p),
+    accountId: str(o, 'accountId', p),
+    direction: nullable(o, 'direction', p, direction),
     merchant: str(o, 'merchant', p),
+    originalText: str(o, 'originalText', p),
     city: str(o, 'city', p),
     note: str(o, 'note', p),
     source: oneOf(o, 'source', p, TX_SOURCES),
@@ -141,6 +164,7 @@ function readCategory(o: Obj, p: string): Category {
     id: str(o, 'id', p),
     name: str(o, 'name', p),
     type: oneOf(o, 'type', p, TX_TYPES),
+    parentId: nullable(o, 'parentId', p, str),
     icon: str(o, 'icon', p),
     color: color(o, 'color', p),
     archived: bool(o, 'archived', p),
@@ -155,6 +179,7 @@ function readRule(o: Obj, p: string): MerchantRule {
     id: str(o, 'id', p),
     pattern: str(o, 'pattern', p),
     categoryId: str(o, 'categoryId', p),
+    displayName: nullable(o, 'displayName', p, str),
     source: oneOf(o, 'source', p, RULE_SOURCES),
     updatedAt: str(o, 'updatedAt', p),
   };
@@ -166,6 +191,8 @@ function readRecurring(o: Obj, p: string): RecurringTemplate {
     type: oneOf(o, 'type', p, TX_TYPES),
     amountCents: amountCents(o, 'amountCents', p),
     categoryId: str(o, 'categoryId', p),
+    accountId: str(o, 'accountId', p),
+    direction: nullable(o, 'direction', p, direction),
     merchant: str(o, 'merchant', p),
     note: str(o, 'note', p),
     dayOfMonth: int(o, 'dayOfMonth', p, 1, 31),
@@ -173,6 +200,18 @@ function readRecurring(o: Obj, p: string): RecurringTemplate {
     endMonth: nullable(o, 'endMonth', p, month),
     lastGeneratedMonth: nullable(o, 'lastGeneratedMonth', p, month),
     active: bool(o, 'active', p),
+    updatedAt: str(o, 'updatedAt', p),
+  };
+}
+
+function readAccount(o: Obj, p: string): Account {
+  return {
+    id: str(o, 'id', p),
+    name: str(o, 'name', p),
+    kind: oneOf(o, 'kind', p, ACCOUNT_KINDS),
+    icon: str(o, 'icon', p),
+    archived: bool(o, 'archived', p),
+    sortOrder: int(o, 'sortOrder', p, -1_000_000, 1_000_000),
     updatedAt: str(o, 'updatedAt', p),
   };
 }
@@ -187,6 +226,7 @@ function readSettings(x: unknown): Settings {
     autoLockMinutes: oneOf(x, 'autoLockMinutes', p, AUTO_LOCK_VALUES),
     backupReminderDays: oneOf(x, 'backupReminderDays', p, REMINDER_VALUES),
     lastBackupAt: nullable(x, 'lastBackupAt', p, str),
+    ownNames: strArray(x, 'ownNames', p, 50),
     updatedAt: str(x, 'updatedAt', p),
   };
 }
@@ -203,6 +243,43 @@ function checkCategoryRefs(
   });
 }
 
+function checkParentRefs(categories: readonly Category[]): void {
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  categories.forEach((c, i) => {
+    if (c.parentId === null) return;
+    const parent = byId.get(c.parentId);
+    if (!parent) {
+      throw new ValidationError(`categories[${i}].parentId verweist auf unbekannte Kategorie`);
+    }
+    if (parent.parentId !== null) {
+      throw new ValidationError(`categories[${i}].parentId: nur eine Ebene erlaubt`);
+    }
+    if (parent.type !== c.type) {
+      throw new ValidationError(`categories[${i}].parentId: Typ passt nicht zur Hauptkategorie`);
+    }
+  });
+}
+
+function checkAccountAndTransferRefs(
+  name: string,
+  list: readonly { accountId: string; categoryId: string; type: TxType; direction: TxDirection | null }[],
+  accountIds: ReadonlySet<string>,
+  categories: ReadonlyMap<string, Category>,
+): void {
+  list.forEach((item, i) => {
+    if (!accountIds.has(item.accountId)) {
+      throw new ValidationError(`${name}[${i}].accountId verweist auf unbekanntes Konto`);
+    }
+    const catType = categories.get(item.categoryId)?.type;
+    if ((item.type === 'transfer') !== (catType === 'transfer')) {
+      throw new ValidationError(`${name}[${i}].categoryId passt nicht zum Typ`);
+    }
+    if ((item.type === 'transfer') !== (item.direction !== null)) {
+      throw new ValidationError(`${name}[${i}].direction ungültig`);
+    }
+  });
+}
+
 /**
  * Prüft unbekannte Daten vollständig und liefert ein NEU aufgebautes Objekt, das nur die
  * bekannten Felder enthält (Zusatzfelder werden verworfen).
@@ -214,6 +291,7 @@ export function validateAppData(x: unknown): AppData {
   const transactions = readList(x.transactions, 'transactions', readTransaction);
   const merchantRules = readList(x.merchantRules, 'merchantRules', readRule);
   const recurring = readList(x.recurring, 'recurring', readRecurring);
+  const accounts = readList(x.accounts, 'accounts', readAccount);
   const settings = readSettings(x.settings);
 
   const categoryIds = new Set(categories.map((c) => c.id));
@@ -221,5 +299,11 @@ export function validateAppData(x: unknown): AppData {
   checkCategoryRefs('merchantRules', merchantRules, categoryIds);
   checkCategoryRefs('recurring', recurring, categoryIds);
 
-  return { transactions, categories, merchantRules, recurring, settings };
+  checkParentRefs(categories);
+  const accountIds = new Set(accounts.map((a) => a.id));
+  const categoryMap = new Map(categories.map((c) => [c.id, c]));
+  checkAccountAndTransferRefs('transactions', transactions, accountIds, categoryMap);
+  checkAccountAndTransferRefs('recurring', recurring, accountIds, categoryMap);
+
+  return { transactions, categories, merchantRules, recurring, accounts, settings };
 }

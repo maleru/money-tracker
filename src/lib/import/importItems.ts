@@ -1,3 +1,4 @@
+import { DEFAULT_ACCOUNT_ID } from '../db/defaults';
 import type { Category, MerchantRule, Transaction, TxInput } from '../types';
 import { markDuplicates } from './duplicates';
 import { suggestForRow } from './parse';
@@ -39,7 +40,10 @@ export function itemsToTxInputs(items: ImportItem[], source: 'text' | 'ocr'): Tx
       amountCents: item.row.amountCents,
       date: item.row.date,
       categoryId: item.categoryId,
+      accountId: DEFAULT_ACCOUNT_ID,
+      direction: null,
       merchant: item.row.merchant,
+      originalText: item.row.merchant,
       city: item.row.city,
       note: '',
       source,

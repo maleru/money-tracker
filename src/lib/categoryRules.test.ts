@@ -12,6 +12,7 @@ function cat(id: string, name: string, type: 'expense' | 'income' = 'expense'): 
     id,
     name,
     type,
+    parentId: null,
     icon: '📦',
     color: '#6b7280',
     archived: false,

@@ -21,7 +21,10 @@ function tx(merchant: string, categoryId: string, type: TxType = 'expense'): Tra
     amountCents: 100,
     date: '2026-01-01',
     categoryId,
+    accountId: 'acc-checking',
+    direction: null,
     merchant,
+    originalText: '',
     city: '',
     note: '',
     source: 'manual',
@@ -36,6 +39,7 @@ function cat(id: string, type: TxType, archived = false): Category {
     id,
     name: id,
     type,
+    parentId: null,
     icon: '📦',
     color: '#6b7280',
     archived,
@@ -51,7 +55,7 @@ function rule(
   source: MerchantRule['source'] = 'default',
   updatedAt = T0,
 ): MerchantRule {
-  return { id: 'rule-' + pattern + '-' + categoryId, pattern, categoryId, source, updatedAt };
+  return { id: 'rule-' + pattern + '-' + categoryId, pattern, categoryId, displayName: null, source, updatedAt };
 }
 
 describe('normalizeMerchant', () => {

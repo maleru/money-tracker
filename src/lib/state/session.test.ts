@@ -63,7 +63,8 @@ describe('session', () => {
     await setupVault(PASSWORD);
     await finishSetup();
     await addTransaction({
-      type: 'expense', amountCents: 100, date: '2026-10-01', categoryId: 'cat-groceries', merchant: '',
+      type: 'expense', amountCents: 100, date: '2026-10-01', categoryId: 'cat-groceries',
+      accountId: 'acc-checking', direction: null, merchant: '', originalText: '',
       city: '', note: '', source: 'manual', recurringId: null,
     });
     expect(get(transactions)).toHaveLength(1);
@@ -79,7 +80,8 @@ describe('session', () => {
     await setupVault(PASSWORD);
     await finishSetup();
     await addTransaction({
-      type: 'expense', amountCents: 100, date: '2026-10-01', categoryId: 'cat-groceries', merchant: '',
+      type: 'expense', amountCents: 100, date: '2026-10-01', categoryId: 'cat-groceries',
+      accountId: 'acc-checking', direction: null, merchant: '', originalText: '',
       city: '', note: '', source: 'manual', recurringId: null,
     });
     lock();
@@ -142,7 +144,8 @@ describe('session', () => {
     await setupVault(PASSWORD);
     await finishSetup();
     await saveRecurring({
-      id: 'rec-1', type: 'expense', amountCents: 5000, categoryId: 'cat-groceries', merchant: 'Verein', note: '',
+      id: 'rec-1', type: 'expense', amountCents: 5000, categoryId: 'cat-groceries', accountId: 'acc-checking',
+      direction: null, merchant: 'Verein', note: '',
       dayOfMonth: 1, startMonth: addMonths(currentMonthKey(), -2), endMonth: null, lastGeneratedMonth: null,
       active: true, updatedAt: '',
     });
@@ -162,7 +165,8 @@ describe('session', () => {
     await setupVault(PASSWORD);
     await finishSetup();
     await addTransaction({
-      type: 'expense', amountCents: 100, date: '2026-10-01', categoryId: 'cat-groceries', merchant: '',
+      type: 'expense', amountCents: 100, date: '2026-10-01', categoryId: 'cat-groceries',
+      accountId: 'acc-checking', direction: null, merchant: '', originalText: '',
       city: '', note: '', source: 'manual', recurringId: null,
     });
     lock();

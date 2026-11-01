@@ -30,7 +30,10 @@ function tx(over: Partial<Transaction> = {}): Transaction {
     amountCents: 100,
     date: '2026-09-01',
     categoryId: 'cat-restaurant',
+    accountId: 'acc-checking',
+    direction: null,
     merchant: 'Aldi',
+    originalText: '',
     city: '',
     note: '',
     source: 'manual',
@@ -64,8 +67,8 @@ describe('suggestForRow', () => {
     expect(suggestForRow(row(), [tx()], rules, cats)).toBe('cat-restaurant');
   });
 
-  it('Regel greift (Aldi -> cat-groceries)', () => {
-    expect(suggestForRow(row(), [], rules, cats)).toBe('cat-groceries');
+  it('Regel greift (Aldi -> cat-groceries-supermarket)', () => {
+    expect(suggestForRow(row(), [], rules, cats)).toBe('cat-groceries-supermarket');
   });
 
   it('Einnahme mit bankType Gutschrift ergibt cat-refund', () => {
@@ -92,7 +95,7 @@ describe('Integration: Fixture -> parseBankText -> suggestForRow', () => {
     expect(unparsedLines).toEqual([]);
     const suggestions = rows.map((r) => [r.merchant, suggestForRow(r, [], rules, cats)]);
     expect(suggestions).toEqual([
-      ['Lidl', 'cat-groceries'],
+      ['Lidl', 'cat-groceries-supermarket'],
       ['Vodafone GmbH', 'cat-telecom'],
       ['Spotify', 'cat-subscriptions'],
       ['DM', 'cat-drugstore'],
@@ -100,7 +103,7 @@ describe('Integration: Fixture -> parseBankText -> suggestForRow', () => {
       ['Fashion Outlet Center', 'cat-clothing'],
       ['Parken City Garage', 'cat-mobility'],
       ['Kantine Nord Gastronomie Gmb', 'cat-refund'],
-      ['BAECKEREI SONNE', 'cat-other-expense'],
+      ['BAECKEREI SONNE', 'cat-groceries-bakery'],
     ]);
   });
 });

@@ -10,11 +10,16 @@ export class MoneyDb extends Dexie {
   merchantRules!: Table<EncryptedRow, string>;
   recurring!: Table<EncryptedRow, string>;
   settings!: Table<EncryptedRow, string>;
+  accounts!: Table<EncryptedRow, string>;
   constructor(name = 'money-tracker') {
     super(name);
     this.version(1).stores({
       meta: 'id', transactions: 'id', categories: 'id',
       merchantRules: 'id', recurring: 'id', settings: 'id',
+    });
+    this.version(2).stores({
+      meta: 'id', transactions: 'id', categories: 'id',
+      merchantRules: 'id', recurring: 'id', settings: 'id', accounts: 'id',
     });
   }
 }

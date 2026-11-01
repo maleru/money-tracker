@@ -9,7 +9,7 @@ import {
   unlockWithPassword,
   type VaultMeta,
 } from '../crypto/vault';
-import { clearAll, loadAll, runRecurring, seedDefaults, settings } from './data';
+import { clearAll, loadAll, migrateIfNeeded, runRecurring, seedDefaults, settings } from './data';
 import { clearDek, setDek } from './key';
 import { showToast } from './toast';
 
@@ -107,6 +107,15 @@ export async function setupVault(password: string): Promise<string> {
   return recoveryKey;
 }
 
+/** Migriert Altdaten auf das aktuelle Schema. Fehler verhindern das Entsperren nicht. */
+async function runMigration(): Promise<void> {
+  try {
+    if (await migrateIfNeeded()) showToast('Daten wurden auf die neue Version aktualisiert');
+  } catch {
+    showToast('Datenaktualisierung fehlgeschlagen – bitte ein Backup erstellen', 'error');
+  }
+}
+
 /** Erzeugt fällige wiederkehrende Buchungen. Fehler verhindern das Entsperren nicht. */
 async function generateRecurring(): Promise<void> {
   try {
@@ -131,6 +140,8 @@ async function enterUnlocked(dek: CryptoKey, gen: number): Promise<void> {
   setDek(dek);
   await loadAll();
   if (gen !== generation) return; // lock() hat den DEK bereits gelöscht und die Stores geleert
+  await runMigration();
+  if (gen !== generation) return;
   await generateRecurring();
   if (gen !== generation) return;
   await requestPersist();

@@ -6,6 +6,7 @@ import { db } from '../db/db';
 import {
   FALLBACK_EXPENSE_CATEGORY,
   FALLBACK_INCOME_CATEGORY,
+  defaultAccounts,
   defaultCategories,
   defaultRules,
   defaultSettings,
@@ -13,6 +14,7 @@ import {
 import { addMonths, currentMonthKey } from '../dates';
 import type { AppData, Category, RecurringTemplate, Transaction } from '../types';
 import {
+  accounts,
   addTransaction,
   addTransactions,
   categories,
@@ -24,6 +26,7 @@ import {
   deleteTransaction,
   loadAll,
   merchantRules,
+  migrateIfNeeded,
   moveCategory,
   recurring,
   rememberMerchant,
@@ -48,7 +51,10 @@ function input(over: Partial<TxInput> = {}): TxInput {
     amountCents: 1234,
     date: '2026-10-21',
     categoryId: 'cat-groceries',
+    accountId: 'acc-checking',
+    direction: null,
     merchant: 'Aldi',
+    originalText: '',
     city: '',
     note: '',
     source: 'manual',
@@ -83,11 +89,19 @@ describe('seedDefaults / loadAll', () => {
     expect(get(categoryMap).get('cat-groceries')?.name).toBe('Lebensmittel');
   });
 
-  it('sortiert Kategorien: expense vor income, dann sortOrder', () => {
-    const list = get(categories);
-    const firstIncome = list.findIndex((c) => c.type === 'income');
-    expect(list.slice(0, firstIncome).every((c) => c.type === 'expense')).toBe(true);
-    expect(list.slice(firstIncome).every((c) => c.type === 'income')).toBe(true);
+  it('sortiert Kategorien: Typ-Rang expense, income, transfer nicht absteigend', () => {
+    const rank = { expense: 0, income: 1, transfer: 2 };
+    const ranks = get(categories).map((c) => rank[c.type]);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+  });
+
+  it('seedDefaults legt die Standardkonten an, und sie bleiben nach clearAll + loadAll erhalten', async () => {
+    const now = '2026-01-01T00:00:00.000Z';
+    expect(get(accounts).map((a) => a.id)).toEqual(defaultAccounts(now).map((a) => a.id));
+    clearAll();
+    expect(get(accounts)).toHaveLength(0);
+    await loadAll();
+    expect(get(accounts)).toHaveLength(2);
   });
 });
 
@@ -106,7 +120,8 @@ describe('Buchungen', () => {
 
   it('sortTx: bei gleichem Datum gewinnt der neuere createdAt', () => {
     const base: Transaction = {
-      id: 'x', type: 'expense', amountCents: 1, date: '2026-10-01', categoryId: 'c', merchant: '', city: '',
+      id: 'x', type: 'expense', amountCents: 1, date: '2026-10-01', categoryId: 'c', accountId: 'acc-checking',
+      direction: null, merchant: '', originalText: '', city: '',
       note: '', source: 'manual', recurringId: null, createdAt: '2026-10-01T10:00:00.000Z', updatedAt: '',
     };
     const older = { ...base, id: 'older' };
@@ -114,10 +129,29 @@ describe('Buchungen', () => {
     expect(sortTx([older, newer]).map((t) => t.id)).toEqual(['newer', 'older']);
   });
 
-  it('sortCategories exportiert und sortiert', () => {
+  it('sortCategories exportiert und sortiert (Kinder direkt unter ihrer Hauptkategorie)', () => {
     const cats = defaultCategories('x');
     const reversed = [...cats].reverse();
-    expect(sortCategories(reversed).map((c) => c.id)).toEqual(cats.map((c) => c.id));
+    const sorted = sortCategories(reversed).map((c) => c.id);
+    expect(sorted).toEqual(sortCategories(cats).map((c) => c.id));
+    expect(sorted.slice(0, 4)).toEqual([
+      'cat-groceries',
+      'cat-groceries-supermarket',
+      'cat-groceries-bakery',
+      'cat-restaurant',
+    ]);
+  });
+
+  it('sortCategories kommt mit Altdaten ohne parentId zurecht', () => {
+    const legacy = defaultCategories('x')
+      .filter((c) => c.parentId === null && c.type !== 'transfer')
+      .map((c) => {
+        const copy: Record<string, unknown> = { ...c };
+        delete copy.parentId;
+        return copy as unknown as Category;
+      });
+    const sorted = sortCategories([...legacy].reverse()).map((c) => c.id);
+    expect(sorted).toEqual(legacy.map((c) => c.id));
   });
 
   it('updateTransaction speichert und setzt updatedAt', async () => {
@@ -178,7 +212,7 @@ describe('Kategorien', () => {
   it('saveCategory legt an und aktualisiert', async () => {
     const before = get(categories).length;
     const c: Category = {
-      id: 'cat-new', name: 'Neu', type: 'expense', icon: '⭐', color: '#000000', archived: false,
+      id: 'cat-new', name: 'Neu', type: 'expense', parentId: null, icon: '⭐', color: '#000000', archived: false,
       sortOrder: 99, monthlyBudgetCents: null, updatedAt: '',
     };
     await saveCategory(c);
@@ -189,7 +223,8 @@ describe('Kategorien', () => {
   });
 
   it('moveCategory tauscht die Reihenfolge', async () => {
-    const expenseIds = (): string[] => get(categories).filter((c) => c.type === 'expense').map((c) => c.id);
+    const expenseIds = (): string[] =>
+      get(categories).filter((c) => c.type === 'expense' && c.parentId === null).map((c) => c.id);
     expect(expenseIds().slice(0, 2)).toEqual(['cat-groceries', 'cat-restaurant']);
 
     await moveCategory('cat-groceries', 1);
@@ -214,7 +249,7 @@ describe('Kategorien', () => {
     if (!restaurant) throw new Error('fehlt');
     await saveCategory({ ...restaurant, archived: true });
     await moveCategory('cat-groceries', 1);
-    const ids = get(categories).filter((c) => c.type === 'expense').map((c) => c.id);
+    const ids = get(categories).filter((c) => c.type === 'expense' && c.parentId === null).map((c) => c.id);
     expect(ids.indexOf('cat-groceries')).toBeGreaterThan(ids.indexOf('cat-restaurant'));
     expect(ids[ids.indexOf('cat-groceries') - 1]).not.toBe('cat-cafe');
   });
@@ -255,14 +290,16 @@ describe('replaceAllData', () => {
     const now = '2026-02-02T00:00:00.000Z';
     const tx: Transaction = {
       id: 'tx-import', type: 'income', amountCents: 500000, date: '2026-02-01', categoryId: 'cat-salary',
-      merchant: 'Firma', city: '', note: '', source: 'manual', recurringId: null, createdAt: now, updatedAt: now,
+      accountId: 'acc-checking', direction: null, merchant: 'Firma', originalText: '', city: '', note: '',
+      source: 'manual', recurringId: null, createdAt: now, updatedAt: now,
     };
-    const cats = defaultCategories(now).slice(0, 3);
+    const cats = defaultCategories(now).filter((c) => ['cat-groceries', 'cat-cafe', 'cat-salary'].includes(c.id));
     const data: AppData = {
       transactions: [tx],
       categories: cats,
-      merchantRules: defaultRules(now).slice(0, 2),
+      merchantRules: defaultRules(now).slice(0, 2).map((r) => ({ ...r, categoryId: 'cat-groceries' })),
       recurring: [],
+      accounts: defaultAccounts(now).slice(0, 1),
       settings: { ...defaultSettings(now), autoLockMinutes: 15 },
     };
     await replaceAllData(data);
@@ -271,13 +308,62 @@ describe('replaceAllData', () => {
     expect(get(categories)).toHaveLength(3);
     expect(get(merchantRules)).toHaveLength(2);
     expect(get(recurring)).toHaveLength(0);
+    expect(get(accounts)).toHaveLength(1);
     expect(get(settings)?.autoLockMinutes).toBe(15);
 
     clearAll();
     await loadAll();
     expect(get(transactions)).toHaveLength(1);
     expect(get(categories)).toHaveLength(3);
+    expect(get(accounts)).toHaveLength(1);
     expect(await db.transactions.count()).toBe(1);
+    expect(await db.accounts.count()).toBe(1);
+  });
+});
+
+describe('migrateIfNeeded', () => {
+  it('migriert v1-Daten, ist danach idempotent und bleibt persistent', async () => {
+    const now = '2026-02-02T00:00:00.000Z';
+    const v1Categories = defaultCategories(now)
+      .filter((c) => c.parentId === null && c.type !== 'transfer')
+      .map((c) => {
+        const copy: Record<string, unknown> = { ...c };
+        delete copy.parentId;
+        return copy;
+      });
+    const v1Tx = {
+      id: 'tx-v1', type: 'expense', amountCents: 1000, date: '2026-02-01', categoryId: 'cat-groceries',
+      merchant: 'Aldi', city: '', note: '', source: 'manual', recurringId: null, createdAt: now, updatedAt: now,
+    };
+    const v1 = {
+      transactions: [v1Tx],
+      categories: v1Categories,
+      merchantRules: [],
+      recurring: [],
+      accounts: [],
+      settings: { ...defaultSettings(now), schemaVersion: 1 },
+    };
+    await replaceAllData(v1 as unknown as AppData);
+
+    expect(await migrateIfNeeded()).toBe(true);
+    expect(get(settings)?.schemaVersion).toBe(2);
+    expect(get(accounts)).toHaveLength(2);
+    expect(get(transactions)[0].accountId).toBe('acc-checking');
+    expect(get(transactions)[0].direction).toBeNull();
+    expect(get(transactions)[0].originalText).toBe('');
+    expect(get(categories).some((c) => c.id === 'cat-groceries-bakery')).toBe(true);
+
+    expect(await migrateIfNeeded()).toBe(false);
+
+    clearAll();
+    await loadAll();
+    expect(get(accounts)).toHaveLength(2);
+    expect(get(settings)?.schemaVersion).toBe(2);
+  });
+
+  it('liefert false ohne geladene Einstellungen', async () => {
+    clearAll();
+    expect(await migrateIfNeeded()).toBe(false);
   });
 });
 
@@ -310,6 +396,8 @@ function template(over: Partial<RecurringTemplate> = {}): RecurringTemplate {
     type: 'expense',
     amountCents: 5000,
     categoryId: 'cat-cafe',
+    accountId: 'acc-checking',
+    direction: null,
     merchant: 'Verein',
     note: '',
     dayOfMonth: 1,
@@ -365,13 +453,15 @@ describe('Wiederkehrende Buchungen', () => {
 
 describe('Guard Kategorien', () => {
   it('moveCategory bei einer archivierten Kategorie verändert nichts', async () => {
-    const before = get(categories).filter((c) => c.type === 'expense').map((c) => [c.id, c.sortOrder]);
+    const before = get(categories)
+      .filter((c) => c.type === 'expense' && c.parentId === null)
+      .map((c) => [c.id, c.sortOrder]);
     const restaurant = get(categoryMap).get('cat-restaurant');
     if (!restaurant) throw new Error('fehlt');
     await saveCategory({ ...restaurant, archived: true });
     await moveCategory('cat-restaurant', -1);
     const after = get(categories)
-      .filter((c) => c.type === 'expense' && c.id !== 'cat-restaurant')
+      .filter((c) => c.type === 'expense' && c.parentId === null && c.id !== 'cat-restaurant')
       .map((c) => [c.id, c.sortOrder]);
     const beforeOthers = before.filter(([id]) => id !== 'cat-restaurant');
     expect(after).toEqual(beforeOthers);

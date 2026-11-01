@@ -31,7 +31,10 @@ function tx(over: Partial<Transaction> = {}): Transaction {
     amountCents: 700,
     date: '2026-10-21',
     categoryId: 'cat-groceries',
+    accountId: 'acc-checking',
+    direction: null,
     merchant: 'Aldi',
+    originalText: '',
     city: '',
     note: '',
     source: 'manual',
@@ -52,7 +55,7 @@ describe('buildImportItems', () => {
 
   it('schlägt die Kategorie vor und vergibt index-basierte Keys', () => {
     const items = buildImportItems([row(), row({ merchant: 'Unbekannt' })], [], rules, cats);
-    expect(items[0].categoryId).toBe('cat-groceries');
+    expect(items[0].categoryId).toBe('cat-groceries-supermarket');
     expect(items[1].categoryId).toBe('cat-other-expense');
     expect(items[0].categoryTouched).toBe(false);
     expect(items[0].key).not.toBe(items[1].key);
@@ -68,7 +71,10 @@ describe('itemsToTxInputs', () => {
         amountCents: 900,
         date: '2026-10-21',
         categoryId: items[1].categoryId,
+        accountId: 'acc-checking',
+        direction: null,
         merchant: 'Rewe',
+        originalText: 'Rewe',
         city: 'Berlin',
         note: '',
         source: 'text',
@@ -115,7 +121,7 @@ describe('Integration mit DKB-Fixture', () => {
     expect(items).toHaveLength(9);
     expect(items.every((i) => i.selected && !i.duplicate)).toBe(true);
     expect(items.map((i) => [i.row.merchant, i.categoryId])).toEqual([
-      ['Lidl', 'cat-groceries'],
+      ['Lidl', 'cat-groceries-supermarket'],
       ['Vodafone GmbH', 'cat-telecom'],
       ['Spotify', 'cat-subscriptions'],
       ['DM', 'cat-drugstore'],
@@ -123,7 +129,7 @@ describe('Integration mit DKB-Fixture', () => {
       ['Fashion Outlet Center', 'cat-clothing'],
       ['Parken City Garage', 'cat-mobility'],
       ['Kantine Nord Gastronomie Gmb', 'cat-refund'],
-      ['BAECKEREI SONNE', 'cat-other-expense'],
+      ['BAECKEREI SONNE', 'cat-groceries-bakery'],
     ]);
     expect(newestDate(items)).toBe('2026-10-21');
   });

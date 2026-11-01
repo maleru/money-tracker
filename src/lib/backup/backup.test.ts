@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { deriveDataKey, encryptJson, randomBytes } from '../crypto/crypto';
 import { toBase64 } from '../crypto/encoding';
 import { WrongSecretError } from '../crypto/vault';
-import { CURRENT_SCHEMA_VERSION, defaultCategories, defaultSettings } from '../db/defaults';
-import type { AppData, Category, Transaction } from '../types';
-import { backupStats, createBackup, decryptBackup, mergeData, readBackupFile } from './backup';
+import { CURRENT_SCHEMA_VERSION, defaultAccounts, defaultCategories, defaultSettings } from '../db/defaults';
+import type { Account, AppData, Category, Transaction } from '../types';
+import { backupStats, createBackup, decryptBackup, mergeData, migratePayload, readBackupFile } from './backup';
 import { InvalidBackupError, type BackupFileV1 } from './format';
-import { ValidationError } from './validate';
+import { ValidationError, validateAppData } from './validate';
 
 const ITER = 1000;
 const PASSWORD = 'ein-sehr-gutes-passwort';
@@ -21,7 +21,10 @@ function tx(id: string, over: Partial<Transaction> = {}): Transaction {
     amountCents: 4215,
     date: '2026-10-21',
     categoryId: 'cat-groceries',
+    accountId: 'acc-checking',
+    direction: null,
     merchant: 'GEHEIM-ALDI',
+    originalText: '',
     city: 'München',
     note: 'Notiz mit Ümläut',
     source: 'manual',
@@ -36,8 +39,11 @@ function makeData(): AppData {
   return {
     transactions: [tx('t1'), tx('t2', { date: '2026-09-01', type: 'income', categoryId: 'cat-salary', amountCents: 300 })],
     categories: defaultCategories(T0),
-    merchantRules: [{ id: 'r1', pattern: 'ALDI', categoryId: 'cat-groceries', source: 'default', updatedAt: T0 }],
+    merchantRules: [
+      { id: 'r1', pattern: 'ALDI', categoryId: 'cat-groceries', displayName: null, source: 'default', updatedAt: T0 },
+    ],
     recurring: [],
+    accounts: defaultAccounts(T0),
     settings: defaultSettings(T0),
   };
 }
@@ -73,6 +79,22 @@ describe('createBackup / readBackupFile / decryptBackup', () => {
     expect(file.kdf.iterations).toBe(ITER);
     const back = await decryptBackup(file, PASSWORD);
     expect(back).toEqual(data);
+  });
+
+  it('Roundtrip mit v2-Daten (Konto, Umbuchung, Unterkategorie) liefert deep-equal Daten', async () => {
+    const data = makeData();
+    data.accounts.push({
+      id: 'acc-extra', name: 'Tagesgeld', kind: 'savings', icon: '🐷', archived: false, sortOrder: 2, updatedAt: T0,
+    });
+    data.transactions.push(
+      tx('t3', { type: 'transfer', direction: 'out', categoryId: 'cat-transfer-savings', accountId: 'acc-extra' }),
+      tx('t4', { categoryId: 'cat-groceries-bakery', originalText: 'BROTHAUS' }),
+    );
+    data.settings = { ...data.settings, ownNames: ['Max Mustermann'] };
+    const text = await createBackup(data, PASSWORD, ITER);
+    const back = await decryptBackup(readBackupFile(text, ITER), PASSWORD);
+    expect(back).toEqual(data);
+    expect(back.settings.schemaVersion).toBe(2);
   });
 
   it('erzeugt JSON mit 2 Leerzeichen Einrückung und passenden Feldlängen', async () => {
@@ -162,6 +184,37 @@ describe('createBackup / readBackupFile / decryptBackup', () => {
     }
   });
 
+  it('migratePayload überführt v1-Daten nach v2', () => {
+    const v1Data = {
+      transactions: [
+        {
+          id: 't1', type: 'expense', amountCents: 500, date: '2026-10-01', categoryId: 'cat-other-expense',
+          merchant: 'X', city: '', note: '', source: 'manual', recurringId: null, createdAt: T0, updatedAt: T0,
+        },
+      ],
+      categories: [
+        {
+          id: 'cat-other-expense', name: 'Sonstiges', type: 'expense', icon: '📦', color: '#6b7280',
+          archived: false, sortOrder: 0, monthlyBudgetCents: null, updatedAt: T0,
+        },
+      ],
+      merchantRules: [],
+      recurring: [],
+      settings: {
+        id: 'settings', schemaVersion: 1, autoLockMinutes: 1, backupReminderDays: 14, lastBackupAt: null, updatedAt: T0,
+      },
+    };
+    const out = validateAppData(migratePayload({ schemaVersion: 1, data: v1Data }));
+    expect(out.settings.schemaVersion).toBe(2);
+    expect(out.accounts).toHaveLength(2);
+    expect(out.transactions[0].accountId).toBe('acc-checking');
+  });
+
+  it('migratePayload wirft bei neuerer Schema-Version (v1-App mit v2-Backup)', () => {
+    expect(() => migratePayload({ schemaVersion: 3, data: {} })).toThrow(InvalidBackupError);
+    expect(() => migratePayload({ schemaVersion: 3, data: {} })).toThrow('Backup stammt aus einer neueren App-Version');
+  });
+
   it('manipulierte schemaVersion 99 wirft InvalidBackupError (neuere App-Version)', async () => {
     const text = await craftFile({ schemaVersion: 99, exportedAt: T0, data: makeData() });
     const file = readBackupFile(text, ITER);
@@ -185,7 +238,7 @@ describe('createBackup / readBackupFile / decryptBackup', () => {
   it('gültig verschlüsselte, aber ungültige Daten werfen ValidationError', async () => {
     const data = makeData();
     data.transactions[0].amountCents = -1;
-    const file = readBackupFile(await craftFile({ schemaVersion: 1, exportedAt: T0, data }), ITER);
+    const file = readBackupFile(await craftFile({ schemaVersion: CURRENT_SCHEMA_VERSION, exportedAt: T0, data }), ITER);
     await expect(decryptBackup(file, PASSWORD)).rejects.toBeInstanceOf(ValidationError);
   });
 });
@@ -231,12 +284,16 @@ describe('mergeData', () => {
       updatedAt: T1,
     };
     incoming.categories.push(extraCat);
-    incoming.merchantRules.push({ id: 'r2', pattern: 'LIDL', categoryId: 'cat-extra', source: 'manual', updatedAt: T1 });
+    incoming.merchantRules.push({
+      id: 'r2', pattern: 'LIDL', categoryId: 'cat-extra', displayName: null, source: 'manual', updatedAt: T1,
+    });
     incoming.recurring.push({
       id: 'rec1',
       type: 'expense',
       amountCents: 100,
       categoryId: 'cat-extra',
+      accountId: 'acc-checking',
+      direction: null,
       merchant: 'X',
       note: '',
       dayOfMonth: 5,
@@ -250,6 +307,19 @@ describe('mergeData', () => {
     expect(merged.categories.some((c) => c.id === 'cat-extra')).toBe(true);
     expect(merged.merchantRules.map((r) => r.id).sort()).toEqual(['r1', 'r2']);
     expect(merged.recurring.map((r) => r.id)).toEqual(['rec1']);
+  });
+
+  it('vereinigt Konten nach id und updatedAt', () => {
+    const current = makeData();
+    const incoming = makeData();
+    const renamed: Account = { ...incoming.accounts[1], name: 'Visa', updatedAt: T2 };
+    const extra: Account = {
+      id: 'acc-extra', name: 'Tagesgeld', kind: 'savings', icon: '🐷', archived: false, sortOrder: 2, updatedAt: T1,
+    };
+    incoming.accounts = [incoming.accounts[0], renamed, extra];
+    const merged = mergeData(current, incoming);
+    expect(merged.accounts.map((a) => a.id)).toEqual(['acc-checking', 'acc-credit-card', 'acc-extra']);
+    expect(merged.accounts[1].name).toBe('Visa');
   });
 
   it('settings kommt aus current', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultCategories, defaultSettings } from '../db/defaults';
+import { defaultAccounts, defaultCategories, defaultSettings } from '../db/defaults';
 import type { AppData, Transaction } from '../types';
 import { ValidationError, validateAppData } from './validate';
 
@@ -12,7 +12,10 @@ function tx(id: string, over: Partial<Transaction> = {}): Transaction {
     amountCents: 4215,
     date: '2026-10-21',
     categoryId: 'cat-groceries',
+    accountId: 'acc-checking',
+    direction: null,
     merchant: 'ALDI',
+    originalText: '',
     city: '',
     note: '',
     source: 'manual',
@@ -27,13 +30,17 @@ function makeData(): AppData {
   return {
     transactions: [tx('t1'), tx('t2', { type: 'income', categoryId: 'cat-salary', amountCents: 300 })],
     categories: defaultCategories(NOW),
-    merchantRules: [{ id: 'r1', pattern: 'ALDI', categoryId: 'cat-groceries', source: 'default', updatedAt: NOW }],
+    merchantRules: [
+      { id: 'r1', pattern: 'ALDI', categoryId: 'cat-groceries', displayName: null, source: 'default', updatedAt: NOW },
+    ],
     recurring: [
       {
         id: 'rec1',
         type: 'expense',
         amountCents: 5000,
         categoryId: 'cat-housing',
+        accountId: 'acc-checking',
+        direction: null,
         merchant: 'Vermieter',
         note: '',
         dayOfMonth: 31,
@@ -44,6 +51,7 @@ function makeData(): AppData {
         updatedAt: NOW,
       },
     ],
+    accounts: defaultAccounts(NOW),
     settings: defaultSettings(NOW),
   };
 }
@@ -86,7 +94,7 @@ describe('validateAppData', () => {
 
   it('wirft bei unbekanntem Typ', () => {
     const r = raw();
-    list(r, 'transactions')[0].type = 'transfer';
+    list(r, 'transactions')[0].type = 'bogus';
     expect(() => validateAppData(r)).toThrow('transactions[0].type ungültig');
   });
 
@@ -254,5 +262,128 @@ describe('validateAppData', () => {
     d.merchantRules = [];
     d.recurring = [];
     expect(validateAppData(raw(d))).toEqual(d);
+  });
+});
+
+describe('validateAppData (Schema v2)', () => {
+  function withCategory(over: Record<string, unknown>): Record<string, unknown> {
+    const r = raw();
+    list(r, 'categories').push({ ...list(r, 'categories')[0], id: 'x', ...over });
+    return r;
+  }
+
+  function withTx(over: Record<string, unknown>): Record<string, unknown> {
+    const r = raw();
+    Object.assign(list(r, 'transactions')[0], over);
+    return r;
+  }
+
+  it('Kategorie mit unbekanntem parentId', () => {
+    expect(() => validateAppData(withCategory({ parentId: 'nope' }))).toThrow(
+      'categories[33].parentId verweist auf unbekannte Kategorie',
+    );
+  });
+
+  it('Kind eines Kindes', () => {
+    expect(() => validateAppData(withCategory({ parentId: 'cat-groceries-bakery' }))).toThrow(
+      'categories[33].parentId: nur eine Ebene erlaubt',
+    );
+  });
+
+  it('Elternkategorie mit anderem Typ', () => {
+    expect(() => validateAppData(withCategory({ type: 'income', parentId: 'cat-groceries' }))).toThrow(
+      'categories[33].parentId: Typ passt nicht zur Hauptkategorie',
+    );
+  });
+
+  it('parentId gleich eigener id', () => {
+    expect(() => validateAppData(withCategory({ parentId: 'x' }))).toThrow(
+      'categories[33].parentId: nur eine Ebene erlaubt',
+    );
+  });
+
+  it('unbekanntes Konto', () => {
+    expect(() => validateAppData(withTx({ accountId: 'acc-x' }))).toThrow(
+      'transactions[0].accountId verweist auf unbekanntes Konto',
+    );
+  });
+
+  it('unbekanntes Konto bei Vorlage', () => {
+    const r = raw();
+    list(r, 'recurring')[0].accountId = 'acc-x';
+    expect(() => validateAppData(r)).toThrow('recurring[0].accountId verweist auf unbekanntes Konto');
+  });
+
+  it('Transfer mit Ausgaben-Kategorie', () => {
+    expect(() =>
+      validateAppData(withTx({ type: 'transfer', direction: 'out', categoryId: 'cat-groceries' })),
+    ).toThrow('transactions[0].categoryId passt nicht zum Typ');
+  });
+
+  it('Ausgabe mit Transfer-Kategorie', () => {
+    expect(() =>
+      validateAppData(withTx({ type: 'expense', categoryId: 'cat-transfer-own', direction: null })),
+    ).toThrow('transactions[0].categoryId passt nicht zum Typ');
+  });
+
+  it('Transfer ohne Richtung', () => {
+    expect(() =>
+      validateAppData(withTx({ type: 'transfer', categoryId: 'cat-transfer-own', direction: null })),
+    ).toThrow('transactions[0].direction ungültig');
+  });
+
+  it('Ausgabe mit Richtung', () => {
+    expect(() => validateAppData(withTx({ type: 'expense', direction: 'in' }))).toThrow(
+      'transactions[0].direction ungültig',
+    );
+  });
+
+  it('unbekannte Richtung', () => {
+    expect(() => validateAppData(withTx({ direction: 'up' }))).toThrow('transactions[0].direction ungültig');
+  });
+
+  it('Vorlage: Richtung und Kategorie-Typ werden geprüft', () => {
+    const r = raw();
+    list(r, 'recurring')[0].direction = 'out';
+    expect(() => validateAppData(r)).toThrow('recurring[0].direction ungültig');
+
+    const r2 = raw();
+    list(r2, 'recurring')[0].categoryId = 'cat-transfer-own';
+    expect(() => validateAppData(r2)).toThrow('recurring[0].categoryId passt nicht zum Typ');
+  });
+
+  it('settings.ownNames mit Nicht-String', () => {
+    const r = raw();
+    (r.settings as Record<string, unknown>).ownNames = ['a', 1];
+    expect(() => validateAppData(r)).toThrow('settings.ownNames ungültig');
+  });
+
+  it('settings.ownNames mit mehr als 50 Einträgen', () => {
+    const r = raw();
+    (r.settings as Record<string, unknown>).ownNames = Array.from({ length: 51 }, (_, i) => 'n' + i);
+    expect(() => validateAppData(r)).toThrow('settings.ownNames ungültig');
+  });
+
+  it('unbekannte Kontoart', () => {
+    const r = raw();
+    list(r, 'accounts')[0].kind = 'bank';
+    expect(() => validateAppData(r)).toThrow('accounts[0].kind ungültig');
+  });
+
+  it('fehlende accounts', () => {
+    const r = raw();
+    delete r.accounts;
+    expect(() => validateAppData(r)).toThrow('accounts ungültig');
+  });
+
+  it('gültige Transfer-Buchung', () => {
+    const r = withTx({ type: 'transfer', direction: 'in', categoryId: 'cat-transfer-savings' });
+    expect(() => validateAppData(r)).not.toThrow();
+  });
+
+  it('Regel auf Transfer-Kategorie mit displayName', () => {
+    const r = raw();
+    Object.assign(list(r, 'merchantRules')[0], { categoryId: 'cat-transfer-invest', displayName: 'Depot' });
+    expect(validateAppData(r).merchantRules[0].displayName).toBe('Depot');
   });
 });

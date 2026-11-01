@@ -2,6 +2,7 @@ import { PBKDF2_ITERATIONS, decryptJson, deriveDataKey, encryptJson, randomBytes
 import { fromBase64, toBase64 } from '../crypto/encoding';
 import { WrongSecretError } from '../crypto/vault';
 import { CURRENT_SCHEMA_VERSION } from '../db/defaults';
+import { migrateToV2 } from '../db/migrate';
 import type { AppData } from '../types';
 import { InvalidBackupError, type BackupFileV1, type BackupPayload } from './format';
 import { validateAppData } from './validate';
@@ -17,8 +18,10 @@ const MAX_ITERATIONS = 10_000_000;
 
 const NEWER_VERSION_MESSAGE = 'Backup stammt aus einer neueren App-Version';
 
-/** Migrationen: Schlüssel N überführt die Daten (`AppData`-Form) von Schema N nach N+1. Vorerst leer. */
-const MIGRATIONS: Record<number, (d: unknown) => unknown> = {};
+/** Migrationen: Schlüssel N überführt die Daten (`AppData`-Form) von Schema N nach N+1. */
+const MIGRATIONS: Record<number, (d: unknown) => unknown> = {
+  1: (d) => migrateToV2(d, new Date().toISOString()),
+};
 
 function appVersion(): string {
   return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
@@ -195,6 +198,7 @@ export function mergeData(current: AppData, incoming: AppData): AppData {
     categories: mergeList(current.categories, incoming.categories),
     merchantRules: mergeList(current.merchantRules, incoming.merchantRules),
     recurring: mergeList(current.recurring, incoming.recurring),
+    accounts: mergeList(current.accounts, incoming.accounts),
     settings: current.settings,
   });
 }

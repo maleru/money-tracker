@@ -100,7 +100,7 @@
       const now = new Date().toISOString();
       const rule: MerchantRule = existing
         ? { ...existing, categoryId: newCategoryId, source: 'manual', updatedAt: now }
-        : { id: crypto.randomUUID(), pattern, categoryId: newCategoryId, source: 'manual', updatedAt: now };
+        : { id: crypto.randomUUID(), pattern, categoryId: newCategoryId, displayName: null, source: 'manual', updatedAt: now };
       await putRule(rule);
       adding = false;
       showToast('Gespeichert');

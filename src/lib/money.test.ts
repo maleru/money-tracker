@@ -122,4 +122,8 @@ describe('signedCents', () => {
     expect(signedCents({ type: 'expense', amountCents: 500 })).toBe(-500);
     expect(signedCents({ type: 'income', amountCents: 500 })).toBe(500);
   });
+  it('berücksichtigt die Richtung bei Umbuchungen', () => {
+    expect(signedCents({ type: 'transfer', amountCents: 500, direction: 'in' })).toBe(500);
+    expect(signedCents({ type: 'transfer', amountCents: 500, direction: 'out' })).toBe(-500);
+  });
 });

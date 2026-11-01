@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import CategoryIcon from '../components/CategoryIcon.svelte';
+  import { DEFAULT_ACCOUNT_ID } from '../lib/db/defaults';
   import { isValidIsoDate, monthKey, todayIso, yesterdayIso } from '../lib/dates';
   import { merchantSuggestions, proposeCategory } from '../lib/merchant';
   import { centsToInput, parseAmountToCents } from '../lib/money';
@@ -18,7 +19,7 @@
     updateTransaction,
   } from '../lib/state/data';
   import { showToast } from '../lib/state/toast';
-  import type { RecurringTemplate, TxType } from '../lib/types';
+  import type { RecurringTemplate, TxDirection, TxType } from '../lib/types';
 
   let { id }: { id?: string } = $props();
 
@@ -128,7 +129,10 @@
     amountCents: number;
     date: string;
     categoryId: string;
+    accountId: string;
+    direction: TxDirection | null;
     merchant: string;
+    originalText: string;
     city: string;
     note: string;
   } | null {
@@ -142,7 +146,10 @@
       amountCents: cents,
       date,
       categoryId,
+      accountId: existing?.accountId ?? DEFAULT_ACCOUNT_ID,
+      direction: null,
       merchant: merchant.trim(),
+      originalText: existing?.originalText ?? '',
       city: city.trim(),
       note: note.trim(),
     };
@@ -164,6 +171,8 @@
         type: fields.type,
         amountCents: fields.amountCents,
         categoryId: fields.categoryId,
+        accountId: DEFAULT_ACCOUNT_ID,
+        direction: null,
         merchant: fields.merchant,
         note: fields.note,
         dayOfMonth: Number(fields.date.slice(8, 10)),

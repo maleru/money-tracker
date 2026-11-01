@@ -53,6 +53,7 @@
     id: existing?.id ?? 'preview',
     name: name.trim() === '' ? 'Name' : name.trim(),
     type,
+    parentId: existing?.parentId ?? null,
     icon,
     color,
     archived: false,
@@ -85,6 +86,7 @@
         await saveCategory({
           id: crypto.randomUUID(),
           type,
+          parentId: null,
           ...fields,
           archived: false,
           sortOrder,

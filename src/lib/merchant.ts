@@ -123,5 +123,5 @@ export function learnRule(
       updatedAt: now,
     };
   }
-  return { id: crypto.randomUUID(), pattern, categoryId, source: 'learned', updatedAt: now };
+  return { id: crypto.randomUUID(), pattern, categoryId, displayName: null, source: 'learned', updatedAt: now };
 }

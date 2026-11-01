@@ -1,6 +1,7 @@
 <script lang="ts">
   import AmountText from '../components/AmountText.svelte';
   import CategoryIcon from '../components/CategoryIcon.svelte';
+  import { DEFAULT_ACCOUNT_ID } from '../lib/db/defaults';
   import { currentMonthKey } from '../lib/dates';
   import { centsToInput, parseAmountToCents } from '../lib/money';
   import { back } from '../lib/router';
@@ -125,6 +126,8 @@
         type,
         amountCents: cents,
         categoryId,
+        accountId: editing?.accountId ?? DEFAULT_ACCOUNT_ID,
+        direction: editing?.direction ?? null,
         merchant: merchant.trim(),
         note: note.trim(),
         dayOfMonth: dayValue,

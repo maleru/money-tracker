@@ -7,6 +7,7 @@ function cat(id: string, name: string, type: TxType): Category {
     id,
     name,
     type,
+    parentId: null,
     icon: '🛒',
     color: '#112233',
     archived: false,
@@ -27,7 +28,10 @@ function tx(p: Partial<Transaction> & Pick<Transaction, 'type' | 'amountCents' |
   counter += 1;
   return {
     id: 't' + counter,
+    accountId: 'acc-checking',
+    direction: null,
     merchant: '',
+    originalText: '',
     city: '',
     note: '',
     source: 'manual',

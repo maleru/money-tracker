@@ -2,16 +2,20 @@ import { derived, get, writable, type Readable, type Writable } from 'svelte/sto
 import { db } from '../db/db';
 import { EncryptedTable } from '../db/encryptedTable';
 import {
+  CURRENT_SCHEMA_VERSION,
   FALLBACK_EXPENSE_CATEGORY,
   FALLBACK_INCOME_CATEGORY,
+  defaultAccounts,
   defaultCategories,
   defaultRules,
   defaultSettings,
 } from '../db/defaults';
+import { migrateToV2 } from '../db/migrate';
 import { learnRule } from '../merchant';
 import { generateDue } from '../recurring';
 import { todayIso } from '../dates';
 import type {
+  Account,
   AppData,
   Category,
   MerchantRule,
@@ -19,6 +23,7 @@ import type {
   Settings,
   Transaction,
   TxInput,
+  TxType,
 } from '../types';
 import { getDek } from './key';
 
@@ -30,12 +35,18 @@ const ruleTable = new EncryptedTable<MerchantRule>(db.merchantRules, getDek);
 const recurringTable = new EncryptedTable<RecurringTemplate>(db.recurring, getDek);
 // In der Tabelle `settings` liegt genau ein Datensatz mit der id 'settings'.
 const settingsTable = new EncryptedTable<Settings>(db.settings, getDek);
+const accountTable = new EncryptedTable<Account>(db.accounts, getDek);
 
 export const transactions: Writable<Transaction[]> = writable([]);
 export const categories: Writable<Category[]> = writable([]);
 export const merchantRules: Writable<MerchantRule[]> = writable([]);
 export const recurring: Writable<RecurringTemplate[]> = writable([]);
 export const settings: Writable<Settings | null> = writable(null);
+export const accounts: Writable<Account[]> = writable([]);
+export const accountMap: Readable<Map<string, Account>> = derived(
+  accounts,
+  ($a) => new Map($a.map((a) => [a.id, a])),
+);
 export const categoryMap: Readable<Map<string, Category>> = derived(
   categories,
   ($c) => new Map($c.map((c) => [c.id, c])),
@@ -58,10 +69,30 @@ export function sortTx(list: Transaction[]): Transaction[] {
   return [...list].sort((a, b) => cmpStr(b.date, a.date) || cmpStr(b.createdAt, a.createdAt));
 }
 
-/** expense vor income, dann sortOrder. Liefert eine neue Liste. */
+const TYPE_RANK: Record<TxType, number> = { expense: 0, income: 1, transfer: 2 };
+
+/** Typ-Rang, dann Hauptkategorie (sortOrder, id), Kinder direkt unter ihrer Hauptkategorie. Liefert eine neue Liste. */
 export function sortCategories(list: Category[]): Category[] {
-  const typeRank = (c: Category): number => (c.type === 'expense' ? 0 : 1);
-  return [...list].sort((a, b) => typeRank(a) - typeRank(b) || a.sortOrder - b.sortOrder);
+  const byId = new Map(list.map((c) => [c.id, c]));
+  // Truthy-Prüfung statt `!== null`: Vor der Migration fehlt parentId bei Altdaten (undefined).
+  const rootOf = (c: Category): Category => (c.parentId ? byId.get(c.parentId) ?? c : c);
+  const childRank = (c: Category): number => (c.parentId ? 1 : 0);
+  return [...list].sort((a, b) => {
+    const ra = rootOf(a);
+    const rb = rootOf(b);
+    return (
+      TYPE_RANK[a.type] - TYPE_RANK[b.type] ||
+      ra.sortOrder - rb.sortOrder ||
+      cmpStr(ra.id, rb.id) ||
+      childRank(a) - childRank(b) ||
+      a.sortOrder - b.sortOrder ||
+      cmpStr(a.id, b.id)
+    );
+  });
+}
+
+function sortAccountsList(list: Account[]): Account[] {
+  return [...list].sort((a, b) => a.sortOrder - b.sortOrder || cmpStr(a.name, b.name));
 }
 
 function sortRules(list: MerchantRule[]): MerchantRule[] {
@@ -80,12 +111,13 @@ function upsert<T extends { id: string }>(list: T[], item: T): T[] {
 
 export async function loadAll(): Promise<void> {
   const e = epoch;
-  const [tx, cats, rules, rec, sets] = await Promise.all([
+  const [tx, cats, rules, rec, sets, acc] = await Promise.all([
     txTable.getAll(),
     categoryTable.getAll(),
     ruleTable.getAll(),
     recurringTable.getAll(),
     settingsTable.getAll(),
+    accountTable.getAll(),
   ]);
   // Während des Ladens wurde gesperrt: Die Stores bleiben leer.
   if (e !== epoch) return;
@@ -94,6 +126,7 @@ export async function loadAll(): Promise<void> {
   merchantRules.set(sortRules(rules));
   recurring.set(rec);
   settings.set(sets.find((s) => s.id === 'settings') ?? null);
+  accounts.set(sortAccountsList(acc));
 }
 
 export function clearAll(): void {
@@ -103,6 +136,7 @@ export function clearAll(): void {
   merchantRules.set([]);
   recurring.set([]);
   settings.set(null);
+  accounts.set([]);
 }
 
 export async function seedDefaults(): Promise<void> {
@@ -111,13 +145,16 @@ export async function seedDefaults(): Promise<void> {
   const cats = defaultCategories(now);
   const rules = defaultRules(now);
   const sets = defaultSettings(now);
+  const accs = defaultAccounts(now);
   await categoryTable.bulkPut(cats);
   await ruleTable.bulkPut(rules);
   await settingsTable.bulkPut([sets]);
+  await accountTable.bulkPut(accs);
   if (e !== epoch) return;
   categories.set(sortCategories(cats));
   merchantRules.set(sortRules(rules));
   settings.set(sets);
+  accounts.set(accs);
 }
 
 // ---------- Buchungen ----------
@@ -196,7 +233,12 @@ export async function moveCategory(id: string, dir: -1 | 1): Promise<void> {
   const all = get(categories);
   const current = all.find((c) => c.id === id);
   if (!current || current.archived) return;
-  const peers = sortCategories(all.filter((c) => c.type === current.type && !c.archived));
+  // PLAN-FRAGE: E1.10 passt die moveCategory-Tests auf Hauptkategorien an, die Peer-Definition „gleicher parentId“
+  // steht aber erst in E2.4. Ohne sie tauscht moveCategory('cat-groceries', 1) mit der Unterkategorie
+  // und die E1-Tests schlagen fehl. Daher hier schon das Minimum aus E2.4 (nur der parentId-Filter).
+  const peers = sortCategories(
+    all.filter((c) => c.type === current.type && (c.parentId ?? null) === (current.parentId ?? null) && !c.archived),
+  );
   const index = peers.findIndex((c) => c.id === id);
   if (index < 0) return;
   const neighbor = peers[index + dir];
@@ -291,8 +333,20 @@ export function buildAppData(): AppData {
     categories: get(categories),
     merchantRules: get(merchantRules),
     recurring: get(recurring),
+    accounts: get(accounts),
     settings: s,
   };
+}
+
+/** Führt migrateToV2 aus, wenn settings.schemaVersion < CURRENT_SCHEMA_VERSION. true = migriert. */
+export async function migrateIfNeeded(): Promise<boolean> {
+  const s = get(settings);
+  if (!s || s.schemaVersion >= CURRENT_SCHEMA_VERSION) return false;
+  const e = epoch;
+  const migrated = migrateToV2(buildAppData(), new Date().toISOString());
+  if (e !== epoch) return false;
+  await replaceAllData(migrated);
+  return true;
 }
 
 // ---------- Alles ersetzen ----------
@@ -300,17 +354,18 @@ export function buildAppData(): AppData {
 export async function replaceAllData(data: AppData): Promise<void> {
   // Verschlüsselung (WebCrypto) läuft VOR der Dexie-Transaktion, weil ein await auf
   // Nicht-IndexedDB-Promises die Transaktion sonst schließen würde.
-  const [txRows, categoryRows, ruleRows, recurringRows, settingsRows] = await Promise.all([
+  const [txRows, categoryRows, ruleRows, recurringRows, settingsRows, accountRows] = await Promise.all([
     txTable.encryptRows(data.transactions),
     categoryTable.encryptRows(data.categories),
     ruleTable.encryptRows(data.merchantRules),
     recurringTable.encryptRows(data.recurring),
     settingsTable.encryptRows([data.settings]),
+    accountTable.encryptRows(data.accounts),
   ]);
 
   await db.transaction(
     'rw',
-    [db.transactions, db.categories, db.merchantRules, db.recurring, db.settings],
+    [db.transactions, db.categories, db.merchantRules, db.recurring, db.settings, db.accounts],
     async () => {
       await Promise.all([
         db.transactions.clear(),
@@ -318,12 +373,14 @@ export async function replaceAllData(data: AppData): Promise<void> {
         db.merchantRules.clear(),
         db.recurring.clear(),
         db.settings.clear(),
+        db.accounts.clear(),
       ]);
       await db.transactions.bulkPut(txRows);
       await db.categories.bulkPut(categoryRows);
       await db.merchantRules.bulkPut(ruleRows);
       await db.recurring.bulkPut(recurringRows);
       await db.settings.bulkPut(settingsRows);
+      await db.accounts.bulkPut(accountRows);
     },
   );
 

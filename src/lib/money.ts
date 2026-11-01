@@ -1,4 +1,4 @@
-import type { TxType } from './types';
+import type { TxDirection, TxType } from './types';
 
 const MAX_CENTS = 99_999_999_99;
 const MINUS = '\u2212';
@@ -55,7 +55,9 @@ export function centsToInput(cents: number): string {
   return `${whole},${frac}`;
 }
 
-/** Vorzeichenbehafteter Wert: expense negativ, income positiv. */
-export function signedCents(tx: { type: TxType; amountCents: number }): number {
-  return tx.type === 'expense' ? -tx.amountCents : tx.amountCents;
+/** expense negativ, income positiv, transfer: out negativ, in positiv. */
+export function signedCents(tx: { type: TxType; amountCents: number; direction?: TxDirection | null }): number {
+  if (tx.type === 'expense') return -tx.amountCents;
+  if (tx.type === 'income') return tx.amountCents;
+  return tx.direction === 'in' ? tx.amountCents : -tx.amountCents;
 }
