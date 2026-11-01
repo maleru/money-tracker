@@ -30,8 +30,10 @@ import {
   moveCategory,
   recurring,
   rememberMerchant,
+  rememberRename,
   replaceAllData,
   runRecurring,
+  saveAccount,
   saveCategory,
   saveRecurring,
   seedDefaults,
@@ -465,5 +467,70 @@ describe('Guard Kategorien', () => {
       .map((c) => [c.id, c.sortOrder]);
     const beforeOthers = before.filter(([id]) => id !== 'cat-restaurant');
     expect(after).toEqual(beforeOthers);
+  });
+});
+
+describe('E2: Unterkategorien, Konten, eigene Namen, Umbenennungs-Regeln', () => {
+  it('moveCategory tauscht eine Unterkategorie nur mit ihrem Geschwister', async () => {
+    const rootIds = (): string[] =>
+      get(categories)
+        .filter((c) => c.parentId === null)
+        .map((c) => c.id);
+    const childIds = (): string[] =>
+      get(categories)
+        .filter((c) => c.parentId === 'cat-housing')
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((c) => c.id);
+    const rootsBefore = rootIds();
+    expect(childIds().slice(0, 2)).toEqual(['cat-housing-rent', 'cat-housing-electricity']);
+
+    await moveCategory('cat-housing-electricity', -1);
+
+    expect(childIds().slice(0, 2)).toEqual(['cat-housing-electricity', 'cat-housing-rent']);
+    expect(rootIds()).toEqual(rootsBefore);
+  });
+
+  it('deleteCategory wirft bei vorhandenen Unterkategorien', async () => {
+    expect(categoryUsage('cat-housing').children).toBeGreaterThan(0);
+    await expect(deleteCategory('cat-housing')).rejects.toThrow('Kategorie hat Unterkategorien');
+  });
+
+  it('saveAccount wirft beim Archivieren des Standardkontos', async () => {
+    const checking = get(accounts).find((a) => a.id === 'acc-checking');
+    if (!checking) throw new Error('fehlt');
+    await expect(saveAccount({ ...checking, archived: true })).rejects.toThrow(
+      'Standardkonto kann nicht archiviert werden',
+    );
+  });
+
+  it('saveAccount legt ein neues Konto an, das nach clearAll + loadAll erhalten bleibt', async () => {
+    await saveAccount({
+      id: 'acc-savings-test',
+      name: 'Tagesgeld Test',
+      kind: 'savings',
+      icon: '🐷',
+      archived: false,
+      sortOrder: 5,
+      updatedAt: '',
+    });
+    expect(get(accounts).some((a) => a.id === 'acc-savings-test')).toBe(true);
+    clearAll();
+    await loadAll();
+    expect(get(accounts).some((a) => a.id === 'acc-savings-test')).toBe(true);
+  });
+
+  it('rememberMerchant legt keine Regel für eigene Namen an', async () => {
+    await updateSettings({ ownNames: ['Max Mustermann'] });
+    const before = get(merchantRules).length;
+    await rememberMerchant('Max Mustermann', 'cat-salary');
+    expect(get(merchantRules)).toHaveLength(before);
+  });
+
+  it('rememberRename legt eine Regel mit displayName an', async () => {
+    await rememberRename('ERIKA UND HANS MUSTER', 'Miete Wohnung', 'cat-housing-rent');
+    const rule = get(merchantRules).find((r) => r.pattern === 'ERIKA UND HANS MUSTER');
+    expect(rule?.displayName).toBe('Miete Wohnung');
+    expect(rule?.categoryId).toBe('cat-housing-rent');
+    expect(rule?.source).toBe('manual');
   });
 });

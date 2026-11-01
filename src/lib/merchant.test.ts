@@ -6,7 +6,12 @@ import {
   lastCategoryForMerchant,
   merchantSuggestions,
   proposeCategory,
+  matchesOwnName,
+  validateOwnName,
+  matchRule,
+  upsertRenameRule,
 } from './merchant';
+import { defaultCategories, defaultRules } from './db/defaults';
 import type { Category, MerchantRule, Transaction, TxType } from './types';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -308,5 +313,138 @@ describe('proposeCategory', () => {
 
   it('liefert null ohne Historie und Regel', () => {
     expect(proposeCategory('Unbekannt', 'expense', [], rules, cats)).toBeNull();
+  });
+});
+
+describe('matchesOwnName', () => {
+  it('erkennt den eigenen Namen in beliebiger Wortreihenfolge und Schreibweise', () => {
+    expect(matchesOwnName('Max Mustermann', ['Max Mustermann'])).toBe(true);
+    expect(matchesOwnName('MAX LEON MUSTERMANN', ['Max Mustermann'])).toBe(true);
+  });
+
+  it('ganze Wörter, keine Teilwörter', () => {
+    expect(matchesOwnName('Maxi Mustermann', ['Max Mustermann'])).toBe(false);
+  });
+
+  it('ignoriert Namen, die normalisiert leer sind', () => {
+    expect(matchesOwnName('Max Mustermann', ['  ', '!!'])).toBe(false);
+  });
+
+  it('fremder Name passt nicht', () => {
+    expect(matchesOwnName('Erika und Hans Muster', ['Max Mustermann'])).toBe(false);
+  });
+});
+
+describe('validateOwnName', () => {
+  it('doppelter Name (normalisiert) wird abgelehnt', () => {
+    expect(validateOwnName('max mustermann', ['Max Mustermann'])).toBe('Name bereits vorhanden');
+  });
+
+  it('höchstens 10 Namen', () => {
+    const ten = ['A1', 'B1', 'C1', 'D1', 'E1', 'F1', 'G1', 'H1', 'I1', 'J1'];
+    expect(validateOwnName('A', ten)).toBe('Höchstens 10 Namen');
+  });
+
+  it('leer, zu lang oder nur Sonderzeichen', () => {
+    expect(validateOwnName('  ', [])).toBe('Bitte einen Namen eingeben');
+    expect(validateOwnName('!!', [])).toBe('Bitte einen Namen eingeben');
+    expect(validateOwnName('x'.repeat(61), [])).toBe('Name ist zu lang (max. 60 Zeichen)');
+  });
+
+  it('gültiger Name ergibt null', () => {
+    expect(validateOwnName('Max Mustermann', [])).toBeNull();
+  });
+});
+
+describe('matchRule', () => {
+  const cats = defaultCategories('2026-01-01T00:00:00.000Z');
+  const manualInvest: MerchantRule = {
+    id: 'u-trade',
+    pattern: 'TRADE REPUBLIC',
+    categoryId: 'cat-transfer-invest',
+    displayName: null,
+    source: 'manual',
+    updatedAt: T0,
+  };
+  const manualSalary: MerchantRule = {
+    id: 'u-gehalt',
+    pattern: 'GEHALT',
+    categoryId: 'cat-salary',
+    displayName: null,
+    source: 'manual',
+    updatedAt: T0,
+  };
+  const defaults = defaultRules('2026-01-01T00:00:00.000Z');
+
+  it('Transfer-Kategorie passt auf Ausgaben', () => {
+    const m = matchRule('Trade Republic', 'expense', [manualInvest], cats);
+    expect(m?.category.id).toBe('cat-transfer-invest');
+  });
+
+  it('Einnahmen-Kategorie passt nicht auf Ausgaben', () => {
+    expect(matchRule('Gehalt GmbH', 'expense', [manualSalary], cats)).toBeNull();
+  });
+
+  it('Default-Regel ALDI wird gefunden', () => {
+    expect(matchRule('ALDI SUED', 'expense', defaults, cats)?.rule.id).toBe('rule-aldi');
+  });
+
+  it('archivierte Kategorie wird ignoriert', () => {
+    const archived = cats.map((c) => (c.id === 'cat-transfer-invest' ? { ...c, archived: true } : c));
+    expect(matchRule('Trade Republic', 'expense', [manualInvest], archived)).toBeNull();
+  });
+});
+
+describe('upsertRenameRule', () => {
+  const NOW = '2026-11-01T12:00:00.000Z';
+
+  it('legt eine neue Regel mit getrimmtem displayName an', () => {
+    const r = upsertRenameRule([], 'ERIKA UND HANS MUSTER', ' Miete Wohnung ', 'cat-housing-rent', NOW);
+    expect(r).toMatchObject({
+      pattern: 'ERIKA UND HANS MUSTER',
+      displayName: 'Miete Wohnung',
+      categoryId: 'cat-housing-rent',
+      source: 'manual',
+      updatedAt: NOW,
+    });
+  });
+
+  it('aktualisiert eine bestehende Regel mit gleichem pattern und behält die id', () => {
+    const existing: MerchantRule = {
+      id: 'learned-1',
+      pattern: 'ERIKA UND HANS MUSTER',
+      categoryId: 'cat-other-expense',
+      displayName: null,
+      source: 'learned',
+      updatedAt: T0,
+    };
+    const r = upsertRenameRule([existing], 'Erika und Hans Muster', 'Miete Wohnung', 'cat-housing-rent', NOW);
+    expect(r?.id).toBe('learned-1');
+    expect(r?.categoryId).toBe('cat-housing-rent');
+    expect(r?.source).toBe('manual');
+    expect(r?.displayName).toBe('Miete Wohnung');
+  });
+
+  it('displayName gleich dem Original wird zu null', () => {
+    const r = upsertRenameRule([], 'Lidl', 'Lidl', 'cat-groceries', NOW);
+    expect(r?.displayName).toBeNull();
+  });
+
+  it('leerer Originalname ergibt null', () => {
+    expect(upsertRenameRule([], '  ', 'X', 'cat-groceries', NOW)).toBeNull();
+  });
+
+  it('learnRule behält einen vorhandenen displayName', () => {
+    const existing: MerchantRule = {
+      id: 'r-x',
+      pattern: 'ERIKA UND HANS MUSTER',
+      categoryId: 'cat-other-expense',
+      displayName: 'X',
+      source: 'learned',
+      updatedAt: T0,
+    };
+    const r = learnRule('Erika und Hans Muster', 'cat-housing-rent', [existing]);
+    expect(r?.displayName).toBe('X');
+    expect(r?.categoryId).toBe('cat-housing-rent');
   });
 });

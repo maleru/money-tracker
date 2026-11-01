@@ -3,15 +3,15 @@ import { db } from '../db/db';
 import { EncryptedTable } from '../db/encryptedTable';
 import {
   CURRENT_SCHEMA_VERSION,
-  FALLBACK_EXPENSE_CATEGORY,
-  FALLBACK_INCOME_CATEGORY,
+  DEFAULT_ACCOUNT_ID,
   defaultAccounts,
   defaultCategories,
   defaultRules,
   defaultSettings,
 } from '../db/defaults';
 import { migrateToV2 } from '../db/migrate';
-import { learnRule } from '../merchant';
+import { isFallbackCategory } from '../categoryRules';
+import { learnRule, matchesOwnName, upsertRenameRule } from '../merchant';
 import { generateDue } from '../recurring';
 import { todayIso } from '../dates';
 import type {
@@ -193,6 +193,19 @@ export async function addTransactions(inputs: TxInput[]): Promise<void> {
   if (e === epoch) transactions.update((list) => sortTx([...list, ...created]));
 }
 
+// ---------- Konten ----------
+
+/** Insert oder Update, setzt updatedAt. Wirft, wenn das Standardkonto archiviert werden soll. */
+export async function saveAccount(a: Account): Promise<void> {
+  if (a.id === DEFAULT_ACCOUNT_ID && a.archived) {
+    throw new Error('Standardkonto kann nicht archiviert werden');
+  }
+  const e = epoch;
+  const updated: Account = { ...a, updatedAt: new Date().toISOString() };
+  await accountTable.put(updated);
+  if (e === epoch) accounts.update((list) => sortAccountsList(upsert(list, updated)));
+}
+
 // ---------- Kategorien ----------
 
 /** Insert oder Update, setzt updatedAt. */
@@ -203,19 +216,28 @@ export async function saveCategory(c: Category): Promise<void> {
   if (e === epoch) categories.update((list) => sortCategories(upsert(list, updated)));
 }
 
-export function categoryUsage(id: string): { transactions: number; rules: number; recurring: number } {
+export function categoryUsage(id: string): {
+  transactions: number;
+  rules: number;
+  recurring: number;
+  children: number;
+} {
   return {
     transactions: get(transactions).filter((t) => t.categoryId === id).length,
     rules: get(merchantRules).filter((r) => r.categoryId === id).length,
     recurring: get(recurring).filter((r) => r.categoryId === id).length,
+    children: get(categories).filter((c) => c.parentId === id).length,
   };
 }
 
 export async function deleteCategory(id: string): Promise<void> {
-  if (id === FALLBACK_EXPENSE_CATEGORY || id === FALLBACK_INCOME_CATEGORY) {
+  if (isFallbackCategory(id)) {
     throw new Error('Standardkategorie kann nicht gelöscht werden');
   }
   const usage = categoryUsage(id);
+  if (usage.children > 0) {
+    throw new Error('Kategorie hat Unterkategorien');
+  }
   if (usage.transactions > 0 || usage.recurring > 0) {
     throw new Error('Kategorie wird noch verwendet');
   }
@@ -233,9 +255,6 @@ export async function moveCategory(id: string, dir: -1 | 1): Promise<void> {
   const all = get(categories);
   const current = all.find((c) => c.id === id);
   if (!current || current.archived) return;
-  // PLAN-FRAGE: E1.10 passt die moveCategory-Tests auf Hauptkategorien an, die Peer-Definition „gleicher parentId“
-  // steht aber erst in E2.4. Ohne sie tauscht moveCategory('cat-groceries', 1) mit der Unterkategorie
-  // und die E1-Tests schlagen fehl. Daher hier schon das Minimum aus E2.4 (nur der parentId-Filter).
   const peers = sortCategories(
     all.filter((c) => c.type === current.type && (c.parentId ?? null) === (current.parentId ?? null) && !c.archived),
   );
@@ -307,7 +326,14 @@ export async function deleteRule(id: string): Promise<void> {
 }
 
 export async function rememberMerchant(merchant: string, categoryId: string): Promise<void> {
+  if (matchesOwnName(merchant, get(settings)?.ownNames ?? [])) return;
   const rule = learnRule(merchant, categoryId, get(merchantRules));
+  if (rule) await putRule(rule);
+}
+
+/** Legt per upsertRenameRule eine Regel an bzw. aktualisiert sie. */
+export async function rememberRename(originalMerchant: string, displayName: string, categoryId: string): Promise<void> {
+  const rule = upsertRenameRule(get(merchantRules), originalMerchant, displayName, categoryId, new Date().toISOString());
   if (rule) await putRule(rule);
 }
 

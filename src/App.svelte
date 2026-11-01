@@ -5,10 +5,12 @@
   import UpdateBanner from './components/UpdateBanner.svelte';
   import { matchRoute, navigate, route } from './lib/router';
   import { initSession, status } from './lib/state/session';
+  import Accounts from './routes/Accounts.svelte';
   import Backup from './routes/Backup.svelte';
   import Categories from './routes/Categories.svelte';
   import CategoryForm from './routes/CategoryForm.svelte';
   import Import from './routes/Import.svelte';
+  import ImportSettings from './routes/ImportSettings.svelte';
   import Lock from './routes/Lock.svelte';
   import Overview from './routes/Overview.svelte';
   import Settings from './routes/Settings.svelte';
@@ -37,6 +39,8 @@
     { pattern: '/settings/categories', component: Categories, withParams: false },
     { pattern: '/settings/categories/new', component: CategoryForm, withParams: true },
     { pattern: '/settings/categories/:id', component: CategoryForm, withParams: true },
+    { pattern: '/settings/accounts', component: Accounts, withParams: false },
+    { pattern: '/settings/import', component: ImportSettings, withParams: false },
     { pattern: '/backup', component: Backup, withParams: false },
     { pattern: '/stats', component: Stats, withParams: false },
     { pattern: '/settings/recurring', component: Recurring, withParams: false },

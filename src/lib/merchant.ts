@@ -125,3 +125,89 @@ export function learnRule(
   }
   return { id: crypto.randomUUID(), pattern, categoryId, displayName: null, source: 'learned', updatedAt: now };
 }
+
+/** Wörter einer normalisierten Zeichenkette (leer ergibt []). */
+function wordsOf(s: string): string[] {
+  return normalizeMerchant(s).split(' ').filter((w) => w !== '');
+}
+
+/** Jedes Wort von normalizeMerchant(name) kommt als Wort in normalizeMerchant(merchant) vor (Reihenfolge egal). Namen, die normalisiert leer sind, werden ignoriert. */
+export function matchesOwnName(merchant: string, ownNames: readonly string[]): boolean {
+  const merchantWords = new Set(wordsOf(merchant));
+  for (const name of ownNames) {
+    const words = wordsOf(name);
+    if (words.length === 0) continue;
+    if (words.every((w) => merchantWords.has(w))) return true;
+  }
+  return false;
+}
+
+/** null = gültig, sonst Fehlermeldung. */
+export function validateOwnName(name: string, existing: readonly string[]): string | null {
+  const trimmed = name.trim();
+  if (trimmed === '') return 'Bitte einen Namen eingeben';
+  if (trimmed.length > 60) return 'Name ist zu lang (max. 60 Zeichen)';
+  const normalized = normalizeMerchant(trimmed);
+  if (normalized === '') return 'Bitte einen Namen eingeben';
+  if (existing.some((e) => normalizeMerchant(e) === normalized)) return 'Name bereits vorhanden';
+  if (existing.length >= 10) return 'Höchstens 10 Namen';
+  return null;
+}
+
+export interface RuleMatch {
+  rule: MerchantRule;
+  category: Category;
+}
+
+/**
+ * Beste Regel für den Import: Muster wortweise enthalten (wie suggestCategory), Kategorie existiert,
+ * nicht archiviert und (category.type === type || category.type === 'transfer'). Bewertung mit compareRules.
+ */
+export function matchRule(
+  merchant: string,
+  type: 'expense' | 'income',
+  rules: MerchantRule[],
+  categories: Category[],
+): RuleMatch | null {
+  const n = normalizeMerchant(merchant);
+  if (n === '') return null;
+
+  const haystack = ' ' + n + ' ';
+  const categoryById = new Map(categories.map((c) => [c.id, c]));
+
+  let best: RuleMatch | null = null;
+  for (const rule of rules) {
+    if (!haystack.includes(' ' + rule.pattern + ' ')) continue;
+    const category = categoryById.get(rule.categoryId);
+    if (!category || category.archived) continue;
+    if (category.type !== type && category.type !== 'transfer') continue;
+    if (best === null || compareRules(rule, best.rule) > 0) best = { rule, category };
+  }
+  return best;
+}
+
+/**
+ * Regel für „Für künftige Importe merken“: pattern = normalizeMerchant(originalMerchant) ('' -> null).
+ * displayName = displayName.trim(); '' oder gleich originalMerchant.trim() -> null.
+ * Existiert eine Regel mit gleichem pattern: { ...existing, categoryId, displayName, source: 'manual', updatedAt: now }.
+ * Sonst neue Regel { id: crypto.randomUUID(), pattern, categoryId, displayName, source: 'manual', updatedAt: now }.
+ */
+export function upsertRenameRule(
+  rules: MerchantRule[],
+  originalMerchant: string,
+  displayName: string,
+  categoryId: string,
+  now: string,
+): MerchantRule | null {
+  const pattern = normalizeMerchant(originalMerchant);
+  if (pattern === '') return null;
+
+  const trimmedName = displayName.trim();
+  const name = trimmedName === '' || trimmedName === originalMerchant.trim() ? null : trimmedName;
+
+  const existing = rules.find((r) => r.pattern === pattern);
+  if (existing) {
+    return { ...existing, categoryId, displayName: name, source: 'manual', updatedAt: now };
+  }
+  return { id: crypto.randomUUID(), pattern, categoryId, displayName: name, source: 'manual', updatedAt: now };
+}

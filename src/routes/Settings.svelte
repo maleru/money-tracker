@@ -138,6 +138,8 @@
   <h2 class="group-title">Daten</h2>
   <ul class="list">
     <li class="list-item"><a class="row-link" href="#/settings/categories"><span>Kategorien</span><span class="muted">›</span></a></li>
+    <li class="list-item"><a class="row-link" href="#/settings/accounts"><span>🏦 Konten</span><span class="muted">›</span></a></li>
+    <li class="list-item"><a class="row-link" href="#/settings/import"><span>📥 Import</span><span class="muted">›</span></a></li>
     <li class="list-item"><a class="row-link" href="#/settings/recurring"><span>Wiederkehrende Buchungen</span><span class="muted">›</span></a></li>
     <li class="list-item"><a class="row-link" href="#/settings/rules"><span>Händler-Regeln</span><span class="muted">›</span></a></li>
     <li class="list-item"><a class="row-link" href="#/backup"><span>Sicherung &amp; Wiederherstellung</span><span class="muted">›</span></a></li>

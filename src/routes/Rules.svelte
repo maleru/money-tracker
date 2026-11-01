@@ -1,10 +1,11 @@
 <script lang="ts">
   import CategoryIcon from '../components/CategoryIcon.svelte';
+  import { categoryLabel, categoryOptions } from '../lib/categoryTree';
   import { normalizeMerchant } from '../lib/merchant';
   import { back } from '../lib/router';
   import { categories, categoryMap, deleteRule, merchantRules, putRule } from '../lib/state/data';
   import { showToast } from '../lib/state/toast';
-  import type { MerchantRule } from '../lib/types';
+  import type { MerchantRule, TxType } from '../lib/types';
 
   const SOURCE_LABEL: Record<MerchantRule['source'], string> = {
     default: 'Standard',
@@ -12,18 +13,22 @@
     manual: 'Manuell',
   };
 
+  const GROUPS: { type: TxType; label: string }[] = [
+    { type: 'expense', label: 'Ausgaben' },
+    { type: 'income', label: 'Einnahmen' },
+    { type: 'transfer', label: 'Umbuchungen' },
+  ];
+
   let search = $state('');
   let editingId = $state<string | null>(null);
   let editCategoryId = $state('');
+  let editDisplayName = $state('');
   let adding = $state(false);
   let newPattern = $state('');
   let newCategoryId = $state('');
   let patternError = $state('');
   let categoryError = $state('');
   let busy = $state(false);
-
-  const expenseCats = $derived($categories.filter((c) => c.type === 'expense' && !c.archived));
-  const incomeCats = $derived($categories.filter((c) => c.type === 'income' && !c.archived));
 
   const visibleRules = $derived.by(() => {
     const q = search.trim().toLowerCase();
@@ -33,10 +38,17 @@
         : $merchantRules.filter(
             (r) =>
               r.pattern.toLowerCase().includes(q) ||
-              ($categoryMap.get(r.categoryId)?.name ?? '').toLowerCase().includes(q),
+              (r.displayName ?? '').toLowerCase().includes(q) ||
+              categoryLabel(r.categoryId, $categoryMap).toLowerCase().includes(q),
           );
     return [...list].sort((a, b) => (a.pattern < b.pattern ? -1 : a.pattern > b.pattern ? 1 : 0));
   });
+
+  /** Optionen einer Gruppe. keepId erscheint nur in der Gruppe seines Typs. */
+  function optionsFor(type: TxType, keepId: string | null): ReturnType<typeof categoryOptions> {
+    const keepType = keepId ? $categoryMap.get(keepId)?.type : undefined;
+    return categoryOptions($categories, type, keepType === type ? keepId : null);
+  }
 
   function toggleEdit(r: MerchantRule): void {
     if (editingId === r.id) {
@@ -45,6 +57,7 @@
     }
     editingId = r.id;
     editCategoryId = r.categoryId;
+    editDisplayName = r.displayName ?? '';
   }
 
   function openAdd(): void {
@@ -59,7 +72,14 @@
     if (busy || editCategoryId === '') return;
     busy = true;
     try {
-      await putRule({ ...r, categoryId: editCategoryId, source: 'manual', updatedAt: new Date().toISOString() });
+      const name = editDisplayName.trim();
+      await putRule({
+        ...r,
+        categoryId: editCategoryId,
+        displayName: name === '' ? null : name,
+        source: 'manual',
+        updatedAt: new Date().toISOString(),
+      });
       editingId = null;
       showToast('Gespeichert');
     } catch {
@@ -113,13 +133,14 @@
   }
 </script>
 
-{#snippet categoryOptions()}
-  <optgroup label="Ausgaben">
-    {#each expenseCats as c (c.id)}<option value={c.id}>{c.icon} {c.name}</option>{/each}
-  </optgroup>
-  <optgroup label="Einnahmen">
-    {#each incomeCats as c (c.id)}<option value={c.id}>{c.icon} {c.name}</option>{/each}
-  </optgroup>
+{#snippet categoryGroups(keepId: string | null)}
+  {#each GROUPS as g (g.type)}
+    <optgroup label={g.label}>
+      {#each optionsFor(g.type, keepId) as o (o.id)}
+        <option value={o.id}>{o.label}</option>
+      {/each}
+    </optgroup>
+  {/each}
 {/snippet}
 
 <div class="page">
@@ -147,17 +168,31 @@
             <span class="pattern">{r.pattern}</span>
             <span class="cat">
               <CategoryIcon category={cat} size={24} />
-              <span class="cat-name">{cat?.name ?? 'Unbekannt'}</span>
+              <span class="cat-name">{categoryLabel(r.categoryId, $categoryMap)}</span>
             </span>
             <span class="badge badge-{r.source}">{SOURCE_LABEL[r.source]}</span>
           </button>
+          {#if r.displayName !== null}
+            <p class="muted display">Anzeigen als: {r.displayName}</p>
+          {/if}
           {#if editingId === r.id}
             <div class="edit">
               <div class="field">
                 <label for="rule-cat-{r.id}">Kategorie</label>
                 <select id="rule-cat-{r.id}" bind:value={editCategoryId}>
-                  {@render categoryOptions()}
+                  {@render categoryGroups(r.categoryId)}
                 </select>
+              </div>
+              <div class="field">
+                <label for="rule-display-{r.id}">Anzeigen als</label>
+                <input
+                  id="rule-display-{r.id}"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Originaltext beibehalten"
+                  bind:value={editDisplayName}
+                />
+                <span class="muted hint">Ersetzt beim Import den Händlernamen. Der Originaltext bleibt gespeichert.</span>
               </div>
               <div class="actions">
                 <button type="button" class="btn btn-primary" disabled={busy || editCategoryId === ''} onclick={() => void saveEdit(r)}>
@@ -196,7 +231,7 @@
         <label for="rule-new-cat">Kategorie</label>
         <select id="rule-new-cat" bind:value={newCategoryId} onchange={() => (categoryError = '')}>
           <option value="">Kategorie wählen…</option>
-          {@render categoryOptions()}
+          {@render categoryGroups(null)}
         </select>
         {#if categoryError}<span class="error">{categoryError}</span>{/if}
       </div>
@@ -233,6 +268,12 @@
     width: 100%;
     padding: 8px 16px;
     text-align: left;
+  }
+
+  .display {
+    font-size: 14px;
+    margin: 0;
+    padding: 0 16px 8px;
   }
 
   .pattern {
@@ -276,6 +317,10 @@
 
   .edit {
     padding: 4px 16px 16px;
+  }
+
+  .hint {
+    font-size: 13px;
   }
 
   .actions {

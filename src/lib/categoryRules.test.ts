@@ -4,7 +4,9 @@ import {
   CATEGORY_ICONS,
   isFallbackCategory,
   validateCategoryName,
+  validateParent,
 } from './categoryRules';
+import { defaultCategories } from './db/defaults';
 import type { Category } from './types';
 
 function cat(id: string, name: string, type: 'expense' | 'income' = 'expense'): Category {
@@ -66,9 +68,9 @@ describe('isFallbackCategory', () => {
 });
 
 describe('CATEGORY_ICONS / CATEGORY_COLORS', () => {
-  it('Icons: 40 eindeutige Einträge, erste und letzte wie im Plan', () => {
-    expect(CATEGORY_ICONS).toHaveLength(40);
-    expect(new Set(CATEGORY_ICONS).size).toBe(40);
+  it('Icons: 47 eindeutige Einträge (40 aus Plan 1.11 + 7 aus E2.1), erste und letzte wie im Plan', () => {
+    expect(CATEGORY_ICONS).toHaveLength(47);
+    expect(new Set(CATEGORY_ICONS).size).toBe(47);
     expect(CATEGORY_ICONS[0]).toBe('🛒');
     expect(CATEGORY_ICONS[39]).toBe('❤️');
     expect(CATEGORY_ICONS).toContain('📦');
@@ -81,5 +83,63 @@ describe('CATEGORY_ICONS / CATEGORY_COLORS', () => {
     for (const c of CATEGORY_COLORS) expect(c).toMatch(/^#[0-9a-f]{6}$/);
     expect(CATEGORY_COLORS[0]).toBe('#16a34a');
     expect(CATEGORY_COLORS[11]).toBe('#6b7280');
+  });
+});
+
+describe('validateParent', () => {
+  const cats = defaultCategories('2026-01-01T00:00:00.000Z');
+  const expense = { id: null, type: 'expense' as const };
+
+  it('parentId null ist immer gültig', () => {
+    expect(validateParent({ id: 'cat-groceries', type: 'expense' }, null, cats)).toBeNull();
+  });
+
+  it('gültiger Fall: neue Ausgabe unter Lebensmittel', () => {
+    expect(validateParent(expense, 'cat-groceries', cats)).toBeNull();
+  });
+
+  it('Standardkategorie kann nicht verschoben werden', () => {
+    expect(validateParent({ id: 'cat-other-expense', type: 'expense' }, 'cat-groceries', cats)).toBe(
+      'Standardkategorie kann nicht verschoben werden',
+    );
+  });
+
+  it('eigene Hauptkategorie als Elternteil', () => {
+    expect(validateParent({ id: 'cat-groceries', type: 'expense' }, 'cat-groceries', cats)).toBe(
+      'Kategorie kann nicht ihre eigene Hauptkategorie sein',
+    );
+  });
+
+  it('unbekannte oder archivierte Elternkategorie', () => {
+    expect(validateParent(expense, 'unbekannt', cats)).toBe('Hauptkategorie nicht gefunden');
+    const archived = cats.map((c) => (c.id === 'cat-groceries' ? { ...c, archived: true } : c));
+    expect(validateParent(expense, 'cat-groceries', archived)).toBe('Hauptkategorie nicht gefunden');
+  });
+
+  it('nur eine Ebene erlaubt', () => {
+    expect(validateParent(expense, 'cat-groceries-bakery', cats)).toBe('Nur eine Ebene erlaubt');
+  });
+
+  it('Typ passt nicht zur Hauptkategorie', () => {
+    expect(validateParent({ id: null, type: 'income' }, 'cat-groceries', cats)).toBe(
+      'Typ passt nicht zur Hauptkategorie',
+    );
+  });
+
+  it('Kategorie mit Unterkategorien kann nicht verschoben werden', () => {
+    expect(validateParent({ id: 'cat-housing', type: 'expense' }, 'cat-groceries', cats)).toBe(
+      'Kategorie hat Unterkategorien und kann nicht verschoben werden',
+    );
+  });
+
+  it('Sibling-Namenstest: „Miete“ unter Wohnen ist doppelt, als Hauptkategorie erlaubt', () => {
+    const withMiete = [...cats, cat('u-miete', 'Miete', 'expense')];
+    expect(validateCategoryName('Miete', 'expense', withMiete, undefined, 'cat-housing')).toBe(
+      'Name bereits vergeben',
+    );
+    expect(validateCategoryName('Miete', 'expense', withMiete, undefined, null)).toBe('Name bereits vergeben');
+    const onlyChild = cats.filter((c) => c.id !== 'cat-housing-rent');
+    expect(validateCategoryName('Miete', 'expense', onlyChild, undefined, null)).toBeNull();
+    expect(validateCategoryName('Miete', 'expense', onlyChild, undefined, 'cat-housing')).toBeNull();
   });
 });
