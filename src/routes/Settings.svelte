@@ -8,6 +8,7 @@
   import { settings, transactions, updateSettings } from '../lib/state/data';
   import { changeMasterPassword, lock, newRecoveryKey, wipeEverything } from '../lib/state/session';
   import { showToast } from '../lib/state/toast';
+  import { checkForUpdate } from '../lib/swUpdate';
   import type { Settings } from '../lib/types';
 
   type AutoLock = Settings['autoLockMinutes'];
@@ -111,6 +112,24 @@
   }
 
   // Info
+  let updateBusy = $state(false);
+  async function searchUpdates(): Promise<void> {
+    if (updateBusy) return;
+    updateBusy = true;
+    try {
+      const result = await checkForUpdate();
+      if (result === 'checked') {
+        showToast('Suche abgeschlossen – falls eine neue Version gefunden wurde, erscheint ein Hinweis.');
+      } else if (result === 'unsupported') {
+        showToast('Updates werden in diesem Browser nicht unterstützt.', 'error');
+      } else {
+        showToast('Update-Prüfung fehlgeschlagen (offline?)', 'error');
+      }
+    } finally {
+      updateBusy = false;
+    }
+  }
+
   let persisted = $state('…');
   onMount(() => {
     void (async () => {
@@ -227,6 +246,11 @@
   <h2 class="group-title">Info</h2>
   <ul class="list">
     <li class="list-item"><span class="row-label">Version</span><span class="muted">{__APP_VERSION__}</span></li>
+    <li class="list-item">
+      <button type="button" class="row-button" disabled={updateBusy} onclick={() => void searchUpdates()}>
+        Nach Updates suchen
+      </button>
+    </li>
     <li class="list-item"><span class="row-label">Speicher dauerhaft</span><span class="muted">{persisted}</span></li>
     <li class="list-item"><span class="row-label">Anzahl Buchungen</span><span class="muted">{$transactions.length}</span></li>
   </ul>

@@ -1,7 +1,46 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { useRegisterSW } from 'virtual:pwa-register/svelte';
+  import { setRegistration } from '../lib/swUpdate';
 
-  const { needRefresh, updateServiceWorker } = useRegisterSW();
+  const VISIBILITY_MIN_INTERVAL_MS = 60_000;
+  const PERIODIC_INTERVAL_MS = 30 * 60_000;
+
+  let lastCheck = 0;
+  let intervalId: ReturnType<typeof setInterval> | undefined;
+  let listening = false;
+
+  // Fehler (z. B. offline) werden abgefangen, damit keine unbehandelte Rejection entsteht.
+  function safeUpdate(r: ServiceWorkerRegistration): void {
+    r.update().catch(() => {
+      // Offline oder Netzwerkfehler: nächster Versuch folgt automatisch.
+    });
+  }
+
+  function onVisibilityChange(r: ServiceWorkerRegistration): void {
+    if (document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    if (now - lastCheck < VISIBILITY_MIN_INTERVAL_MS) return;
+    lastCheck = now;
+    safeUpdate(r);
+  }
+
+  const { needRefresh, updateServiceWorker } = useRegisterSW({
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+      setRegistration(registration);
+      lastCheck = Date.now();
+      if (!listening) {
+        listening = true;
+        document.addEventListener('visibilitychange', () => onVisibilityChange(registration));
+      }
+      intervalId ??= setInterval(() => safeUpdate(registration), PERIODIC_INTERVAL_MS);
+    },
+  });
+
+  onDestroy(() => {
+    if (intervalId !== undefined) clearInterval(intervalId);
+  });
 </script>
 
 {#if $needRefresh}
