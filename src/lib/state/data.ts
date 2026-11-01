@@ -131,6 +131,7 @@ export async function loadAll(): Promise<void> {
 
 export function clearAll(): void {
   epoch += 1;
+  inflight = null;
   transactions.set([]);
   categories.set([]);
   merchantRules.set([]);
@@ -294,22 +295,35 @@ let inflight: Promise<number> | null = null;
 /** Erzeugt fällige Buchungen aus den Vorlagen und gibt deren Anzahl zurück. */
 export function runRecurring(): Promise<number> {
   if (inflight) return inflight;
-  inflight = (async (): Promise<number> => {
+  const run = (async (): Promise<number> => {
     const e = epoch;
     const now = new Date().toISOString();
     const { newTx, updated } = generateDue(get(recurring), todayIso(), now, get(transactions));
     if (newTx.length === 0 && updated.length === 0) return 0;
-    await addTransactions(newTx);
-    for (const t of updated) {
-      // Nach lock() dürfen keine Vorlagen mehr geschrieben werden.
-      if (e !== epoch) return 0;
-      await saveRecurring(t);
+    const created = newTx.map((input) => makeTx(input, now));
+    // Verschlüsselung vor der Dexie-Transaktion (siehe replaceAllData).
+    const [txRows, recRows] = await Promise.all([txTable.encryptRows(created), recurringTable.encryptRows(updated)]);
+    // Nach lock() darf nichts mehr geschrieben werden.
+    if (e !== epoch) return 0;
+    // Buchungen und Vorlagen atomar: Entweder beides oder nichts. Sonst entstünden beim nächsten Lauf Duplikate.
+    await db.transaction('rw', [db.transactions, db.recurring], async () => {
+      await db.transactions.bulkPut(txRows);
+      await db.recurring.bulkPut(recRows);
+    });
+    if (e === epoch) {
+      transactions.update((list) => sortTx([...list, ...created]));
+      for (const t of updated) recurring.update((list) => upsert(list, t));
     }
-    return e === epoch ? newTx.length : 0;
-  })().finally(() => {
-    inflight = null;
-  });
-  return inflight;
+    return e === epoch ? created.length : 0;
+  })();
+  inflight = run;
+  // Nur den eigenen Lauf freigeben: Ein neuerer Lauf (nach clearAll) darf nicht überschrieben werden.
+  run
+    .finally(() => {
+      if (inflight === run) inflight = null;
+    })
+    .catch(() => undefined);
+  return run;
 }
 
 // ---------- Regeln ----------

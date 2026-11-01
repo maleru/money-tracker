@@ -379,12 +379,12 @@ export function migrateToV2(input: unknown, now: string): AppData;
 | M9 | frische v2-Daten aus den Defaults (`accounts = defaultAccounts`) | `toEqual` zur Eingabe. |
 | M10 | Eingabe nicht verändert | `JSON.stringify(input)` ist vorher und nachher gleich. |
 | M11 | `null`, `[]`, `'x'` | wirft `ValidationError` |
-| M12 | `v1Data` ohne `cat-groceries` und ohne die 9 Supermarkt-Regeln | Es gibt 30 Kategorien, und keine `cat-groceries-*` wird ergänzt. Es gibt keine Bäckerei- und keine Supermarkt-Regeln, insgesamt also **51** Regeln. |
+| M12 | `v1Data` ohne `cat-groceries` und ohne die 9 Supermarkt-Regeln | Fehlende Default-Kategorien werden ergänzt: `cat-groceries` und seine Kinder kommen dazu. Es gibt 33 Kategorien und, da die Default-Regeln auf die nun vorhandenen Zielkategorien zeigen, **65** Regeln. Bestehende Nutzerdaten bleiben unverändert. |
 
 > Rechenweg: Die alte Basis hat 42 Regeln (9 Supermarkt-Regeln + 33 weitere). `defaultRules` liefert 65 Regeln, davon sind 23 neu: Bäckerei 5, Mitgliedschaften 7, Versicherungen 8, Rundfunk 2, Stadtwerke 1.
 > - M5: 42 alte + 1 Nutzerregel + 22 neue (ohne FITNESS) = 65.
 > - M6: 42 + 23 − 8 (Versicherungen) = 57.
-> - M12: 33 alte + 23 neue − 5 (Bäckerei, weil die Zielkategorie fehlt) = 51. Die Supermarkt-Default-Regeln werden übersprungen, weil `cat-groceries-supermarket` fehlt.
+> - M12: 33 alte Regeln (42 minus die 9 Supermarkt-Regeln, deren Zielkategorie `cat-groceries` fehlt) + 32 ergänzte Default-Regeln = 65. Fehlende Defaults werden in `addMissingDefaultCategories` und `applyDefaultRules` ergänzt.
 
 ### E1.6 `src/lib/backup/validate.ts`
 Änderungen:

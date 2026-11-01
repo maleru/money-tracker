@@ -446,6 +446,20 @@ describe('Wiederkehrende Buchungen', () => {
     expect(get(transactions)).toHaveLength(3);
   });
 
+  it('runRecurring persistiert Buchungen und Vorlage gemeinsam (kein Duplikat nach lock/unlock)', async () => {
+    await saveRecurring(template());
+    expect(await runRecurring()).toBe(3);
+    // Die DB-Zustände müssen zusammenpassen: Jede erzeugte Buchung gehört zu einer Vorlage, die den Monat kennt.
+    // DB-Zeilen sind verschlüsselt, daher nur Anzahlen prüfen.
+    expect(await db.transactions.count()).toBe(3);
+    expect(await db.recurring.count()).toBe(1);
+    // Simuliert lock() und erneutes Laden aus der DB: Es darf nichts erneut erzeugt werden.
+    clearAll();
+    await loadAll();
+    expect(await runRecurring()).toBe(0);
+    expect(get(transactions).filter((t) => t.recurringId === 'rec-1')).toHaveLength(3);
+  });
+
   it('deleteCategory wirft, wenn eine Vorlage die Kategorie verwendet', async () => {
     await saveRecurring(template({ active: false }));
     expect(categoryUsage('cat-cafe').recurring).toBe(1);

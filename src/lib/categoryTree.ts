@@ -49,8 +49,7 @@ export function categoryOptions(cats: readonly Category[], type: TxType, keepId?
   }
   if (keepId && !out.some((o) => o.id === keepId)) {
     const kept = byId.get(keepId);
-    // PLAN-FRAGE: Der Plan nennt keine Typprüfung für keepId. Wir hängen sie nur an, wenn der Typ passt
-    // (Rules.svelte: „keepId-Option erscheint nur in der Gruppe ihres Typs“).
+    // Nur anhängen, wenn der Typ passt: Die keepId-Option erscheint nur in der Gruppe ihres Typs (Rules.svelte).
     if (kept && kept.type === type) {
       const parent = kept.parentId ? byId.get(kept.parentId) : undefined;
       const label = parent

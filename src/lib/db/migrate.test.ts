@@ -198,11 +198,9 @@ describe('migrateToV2', () => {
     expect(() => migrateToV2('x', NOW)).toThrow(ValidationError);
   });
 
-  it('M12: ohne cat-groceries (Algorithmus wörtlich)', () => {
-    // PLAN-FRAGE: Der Plan erwartet hier 30 Kategorien und 51 Regeln (cat-groceries und die Kinder werden nicht
-    // ergänzt). Der Algorithmus in E1.5 Schritt 3 ergänzt aber `cat-groceries` (Default, id fehlt, kein
-    // Namenskonflikt, keine Eltern-Kategorie nötig) und danach auch seine Kinder. Daraus folgen 33 Kategorien
-    // und 65 Regeln. Umgesetzt ist der Algorithmus wörtlich.
+  it('M12: ohne cat-groceries wird der Default ergänzt (inkl. Kinder und Regeln)', () => {
+    // Fachlich gewollt: Fehlende Default-Kategorien werden bei der Migration ergänzt, bestehende Nutzerdaten
+    // bleiben unverändert. Daher 33 Kategorien und 65 Regeln (siehe plans/04-erweiterungen.md, M12).
     const categories = v1Categories().filter((c) => c.id !== 'cat-groceries');
     const rules = v1Rules().filter((r) => r.categoryId !== 'cat-groceries');
     expect(rules).toHaveLength(33);
