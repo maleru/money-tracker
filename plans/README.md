@@ -5,7 +5,8 @@
 2. [01-phase1-mvp.md](01-phase1-mvp.md): Schritte 1.1–1.14
 3. [02-phase2-auswertungen.md](02-phase2-auswertungen.md): Schritte 2.1–2.5
 4. [03-phase3-4-import.md](03-phase3-4-import.md): Schritte 3.1–3.6 und 4.1
-5. [konzept.md](konzept.md): Überblick für Menschen
+5. [04-erweiterungen.md](04-erweiterungen.md): Schritte E1–E5 (Unterkategorien, Umbuchungen, Konten, Umbenennungs-Regeln, robuster DKB-Import, unscharfe Duplikate, Migration auf Schema v2)
+6. [konzept.md](konzept.md): Überblick für Menschen
 
 ## Ablauf
 ```mermaid
