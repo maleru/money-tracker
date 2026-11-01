@@ -1,0 +1,21 @@
+Girokonto
+Oktober		
+	Lidl
+21.10.26 • Kartenzahlung	-42,15 €
+	Vodafone GmbH
+21.10.26 • Lastschrift	- 29,99 €
+	Spotify
+20.10.26 • Kartenzahlung	-10,99 €
+	DM
+19.10.26 • Kartenzahlung	-4,35 €
+	Spotify
+19.10.26 • Kartenzahlung	-2,99 €
+	Fashion.Outlet.Center/
+Musterstadt
+16.10.26 • Kartenzahlung	-55,40 €
+	Parken.City.Garage/ Beispielstadt
+16.10.26 • Kartenzahlung	-6,50 €
+	Kantine...Nord.Gastronomie.Gmb/ Beispielort
+16.10.26 • Gutschrift	+2,50 €
+	BAECKEREI.SONNE/ MUSTERHAUSEN
+16.10.26 • Kartenzahluna	-7,20 €
