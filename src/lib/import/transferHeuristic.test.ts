@@ -14,6 +14,7 @@ function row(over: Partial<ParsedRow>): ParsedRow {
     city: '',
     bankType: '',
     pending: false,
+    dateGuessed: false,
     raw: '',
     ...over,
   };

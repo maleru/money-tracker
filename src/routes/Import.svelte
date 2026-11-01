@@ -169,6 +169,7 @@
     const typeChanged = draftType !== item.type || (draftType === 'transfer' && draftDirection !== item.direction);
 
     item.merchant = merchant;
+    if (draftDate !== item.date) item.row.dateGuessed = false;
     item.date = draftDate;
     item.amountCents = cents;
     item.type = draftType;
@@ -342,6 +343,9 @@
           {/if}
           {#if item.row.pending}
             <span class="badge">Vorgemerkt</span>
+          {/if}
+          {#if item.row.dateGuessed}
+            <span class="badge badge-warn">Datum geschätzt – bitte prüfen</span>
           {/if}
 
           <select aria-label="Kategorie" bind:value={item.categoryId} onchange={() => (item.categoryTouched = true)}>
@@ -561,6 +565,11 @@
     color: #92400e;
     font-size: 13px;
     font-weight: 600;
+  }
+
+  .badge-warn {
+    background: #ffedd5;
+    color: #9a3412;
   }
 
   .checkbox-label {

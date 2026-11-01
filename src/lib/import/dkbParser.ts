@@ -12,6 +12,10 @@ const BALANCE_LINE = /^[+\-−–]?\s*[\d.]+,\d{2}\s*€$/;
 const MONTH_LINE = new RegExp(`^(${MONTH_NAMES.join('|')})(\\s+\\d{4})?$`, 'i');
 /** Datum irgendwo in der Zeile (nur für prepareLine). */
 const DATE_ANYWHERE = /\d{1,2}\.\d{1,2}\.\d{2,4}/;
+/** Datums-Token mit Leerzeichen davor; danach optional Leerzeichen und `•`/`·`/`*`, Zeilenende oder Betrag. */
+const DATE_TOKEN = / (\d{1,2}\.\d{1,2}\.\d{2,4})(?=\s*(?:[•·*]|$|[+\-−–]\s*\d))/g;
+/** Zeile beginnt mit einem Datum. */
+const DATE_START = /^\d{1,2}\.\d{1,2}\.\d{2,4}/;
 /** „Vorgemerkt“-Präfix, optional mit führendem Symbol (z. B. „• Vorgemerkt •“ oder „+ Vorgemerkt •“). */
 const PENDING_PREFIX = /^(?:[•·*+]\s*)?vorgemerkt\s*[•·*]\s*/i;
 /** Länderkürzel wie „DE“ oder „D DE“. */
@@ -99,6 +103,21 @@ export function splitMerchantLines(lines: string[]): { merchant: string; city: s
   return splitMerchant(lines.join(' '));
 }
 
+/**
+ * Zerlegt eine Zeile „Händler Datum • Art“ am letzten gültigen Datums-Token.
+ * Liefert null, wenn die Zeile mit einem Datum beginnt, kein Token passt, das Datum ungültig ist oder der Händler leer wäre.
+ */
+function splitAtDate(line: string): { prefix: string; rest: string } | null {
+  if (DATE_START.test(line)) return null;
+  const matches = [...line.matchAll(DATE_TOKEN)];
+  const last = matches.length > 0 ? matches[matches.length - 1] : undefined;
+  if (last === undefined || last.index === undefined) return null;
+  if (parseGermanDate(last[1]) === null) return null;
+  const prefix = line.slice(0, last.index).trim();
+  if (prefix === '') return null;
+  return { prefix, rest: line.slice(last.index + 1) };
+}
+
 function buildRow(
   dateText: string,
   bankType: string,
@@ -107,8 +126,10 @@ function buildRow(
   merchantLines: string[],
   raw: string,
   pending: boolean,
+  dateGuessed: boolean,
 ): ParsedRow | null {
-  const date = parseGermanDate(dateText);
+  // Leeres Datum: Zeile ohne Datumszeile (Nachbearbeitung in parseDkb setzt es).
+  const date = dateText === '' ? '' : parseGermanDate(dateText);
   if (date === null) return null;
   const amountCents = parseAmountToCents(amountText);
   if (amountCents === null) return null;
@@ -122,6 +143,7 @@ function buildRow(
     bankType: bankType.trim(),
     raw,
     pending,
+    dateGuessed,
   };
 }
 
@@ -130,10 +152,27 @@ export function parseDkb(text: string): ParseResult {
   const rows: ParsedRow[] = [];
   const unparsedLines: string[] = [];
   let merchantLines: string[] = [];
+  // true, wenn die vorherige verarbeitete Zeile eine Buchungszeile ohne Betrag war.
+  let prevNoAmount = false;
 
   for (let i = 0; i < lines.length; i++) {
     const current = lines[i];
-    if (isIgnoredLabel(current) || current === '€' || BALANCE_LINE.test(current)) continue;
+    if (isIgnoredLabel(current) || current === '€') continue;
+    // Betrag ohne Datumszeile: nur mit vorangehenden Händlerzeilen eine Buchung, sonst Kontostand (ignoriert).
+    const afterNoAmount = prevNoAmount;
+    prevNoAmount = false;
+    const amountLine = AMOUNT_ONLY.exec(current);
+    if (amountLine) {
+      if (merchantLines.length > 0 && !afterNoAmount) {
+        const raw = [...merchantLines, current].join('\n');
+        const row = buildRow('', '', amountLine[1], amountLine[2], merchantLines, raw, false, true);
+        if (row) rows.push(row);
+        else unparsedLines.push(current);
+        merchantLines = [];
+      }
+      continue;
+    }
+    if (BALANCE_LINE.test(current)) continue;
     if (current.length > MAX_LINE_LENGTH) {
       unparsedLines.push(current);
       merchantLines = [];
@@ -149,11 +188,21 @@ export function parseDkb(text: string): ParseResult {
       line = line.slice(pm[0].length);
     }
 
+    // Händler und Datum in einer Zeile: Händler wird Händlerzeile, der Rest wird als Datumszeile neu verarbeitet.
+    const split = splitAtDate(line);
+    if (split) {
+      merchantLines.push(split.prefix);
+      // Vorgemerkt-Status geht beim Neuverarbeiten verloren, daher als Präfix wieder voranstellen.
+      lines[i] = (isPending ? 'Vorgemerkt • ' : '') + split.rest;
+      i--;
+      continue;
+    }
+
     const full = BOOKING.exec(line);
     if (full) {
       const raw = [...merchantLines, current].join('\n');
       const bankType = isPending ? 'Vorgemerkt' : full[2];
-      const row = buildRow(full[1], bankType, full[3], full[4], merchantLines, raw, isPending);
+      const row = buildRow(full[1], bankType, full[3], full[4], merchantLines, raw, isPending, false);
       if (row) rows.push(row);
       else unparsedLines.push(current);
       merchantLines = [];
@@ -169,7 +218,7 @@ export function parseDkb(text: string): ParseResult {
       if (amountOnly) {
         const raw = [...merchantLines, current, lines[j]].join('\n');
         const bankType = isPending ? 'Vorgemerkt' : noAmount[2];
-        const row = buildRow(noAmount[1], bankType, amountOnly[1], amountOnly[2], merchantLines, raw, isPending);
+        const row = buildRow(noAmount[1], bankType, amountOnly[1], amountOnly[2], merchantLines, raw, isPending, false);
         if (row) rows.push(row);
         else unparsedLines.push(current);
         merchantLines = [];
@@ -177,6 +226,9 @@ export function parseDkb(text: string): ParseResult {
         continue;
       }
     }
+
+    // Datumszeile ohne Betrag: ein folgender Betrag gehört zu dieser Zeile, nicht zu einer Ersatzbuchung.
+    if (noAmount) prevNoAmount = true;
 
     // Länderzeile direkt nach einer Händlerzeile wird verworfen.
     if (merchantLines.length > 0 && COUNTRY_LINE.test(current)) continue;
@@ -186,5 +238,23 @@ export function parseDkb(text: string): ParseResult {
   }
 
   unparsedLines.push(...merchantLines);
-  return { rows, unparsedLines };
+
+  // Zeilen ohne Datum: Datum der vorherigen Zeile mit Datum, sonst der folgenden.
+  let lastDate = '';
+  for (const row of rows) {
+    if (row.date !== '') lastDate = row.date;
+    else if (lastDate !== '') row.date = lastDate;
+  }
+  let nextDate = '';
+  for (let k = rows.length - 1; k >= 0; k--) {
+    const row = rows[k];
+    if (row.date !== '') nextDate = row.date;
+    else if (nextDate !== '') row.date = nextDate;
+  }
+  const dated: ParsedRow[] = [];
+  for (const row of rows) {
+    if (row.date === '') unparsedLines.push(row.raw);
+    else dated.push(row);
+  }
+  return { rows: dated, unparsedLines };
 }

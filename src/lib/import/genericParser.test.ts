@@ -14,6 +14,7 @@ describe('parseGeneric', () => {
       city: '',
       bankType: '',
       pending: false,
+      dateGuessed: false,
     });
   });
 

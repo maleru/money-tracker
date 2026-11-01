@@ -15,6 +15,7 @@ export interface ParsedRow {
   city: string;
   bankType: string; // z.B. 'Kartenzahlung', '' wenn unbekannt
   pending: boolean; // true bei 'Vorgemerkt'
+  dateGuessed: boolean; // true, wenn das Datum nicht aus der Zeile stammt (geschätzt, bitte prüfen)
   raw: string; // Originalzeilen, für Anzeige bei Problemen
 }
 
@@ -31,7 +32,7 @@ export function parseBankText(text: string): ParseResult {
 }
 
 const REFUND_RE = /gutschrift|erstattung|rückzahlung/i;
-const SALARY_RE = /gehalt|lohn|bezüge/i;
+const SALARY_RE = /gehalt|lohn|bezüge|rente|besoldung/i;
 
 function usableCategory(id: string, type: TxType, cats: Category[]): boolean {
   const c = cats.find((x) => x.id === id);

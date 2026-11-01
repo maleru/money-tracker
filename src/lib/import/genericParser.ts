@@ -46,6 +46,7 @@ export function parseGeneric(text: string): ParseResult {
       city: '',
       bankType: '',
       pending: false,
+      dateGuessed: false,
       raw: line,
     });
   }

@@ -125,7 +125,7 @@ describe('classifyRow und Import-Regeln', () => {
       source: 'manual',
       updatedAt: NOW,
     };
-    const base = { date: '2026-10-05', city: '', bankType: 'Kartenzahlung', pending: false, raw: '', amountCents: 2000, merchant: 'Trade Republic' };
+    const base = { date: '2026-10-05', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false, raw: '', amountCents: 2000, merchant: 'Trade Republic' };
     const out = classifyRow({ ...base, type: 'expense' }, ctx({ rules: [rule] }));
     expect(out).toMatchObject({ type: 'transfer', direction: 'out', categoryId: 'cat-transfer-invest' });
     const inn = classifyRow({ ...base, type: 'income' }, ctx({ rules: [rule] }));

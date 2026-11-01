@@ -7,34 +7,49 @@ const fixture = readFileSync(new URL('./__fixtures__/dkb-oktober.txt', import.me
 const fixtureNov = readFileSync(new URL('./__fixtures__/dkb-november.txt', import.meta.url), 'utf8');
 
 const EXPECTED = [
-  { date: '2026-10-21', type: 'expense', amountCents: 4215, merchant: 'Lidl', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-21', type: 'expense', amountCents: 2999, merchant: 'Vodafone GmbH', city: '', bankType: 'Lastschrift', pending: false },
-  { date: '2026-10-20', type: 'expense', amountCents: 1099, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-19', type: 'expense', amountCents: 435, merchant: 'DM', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-19', type: 'expense', amountCents: 299, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-16', type: 'expense', amountCents: 5540, merchant: 'Fashion Outlet Center', city: 'Musterstadt', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-16', type: 'expense', amountCents: 650, merchant: 'Parken City Garage', city: 'Beispielstadt', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-16', type: 'income', amountCents: 250, merchant: 'Kantine Nord Gastronomie Gmb', city: 'Beispielort', bankType: 'Gutschrift', pending: false },
-  { date: '2026-10-16', type: 'expense', amountCents: 720, merchant: 'BAECKEREI SONNE', city: 'Musterhausen', bankType: 'Kartenzahluna', pending: false },
+  { date: '2026-10-21', type: 'expense', amountCents: 4215, merchant: 'Lidl', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-21', type: 'expense', amountCents: 2999, merchant: 'Vodafone GmbH', city: '', bankType: 'Lastschrift', pending: false, dateGuessed: false },
+  { date: '2026-10-20', type: 'expense', amountCents: 1099, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-19', type: 'expense', amountCents: 435, merchant: 'DM', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-19', type: 'expense', amountCents: 299, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'expense', amountCents: 5540, merchant: 'Fashion Outlet Center', city: 'Musterstadt', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'expense', amountCents: 650, merchant: 'Parken City Garage', city: 'Beispielstadt', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'income', amountCents: 250, merchant: 'Kantine Nord Gastronomie Gmb', city: 'Beispielort', bankType: 'Gutschrift', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'expense', amountCents: 720, merchant: 'BAECKEREI SONNE', city: 'Musterhausen', bankType: 'Kartenzahluna', pending: false, dateGuessed: false },
 ];
 
 /** Verbindliche Ergebnistabelle der November-Fixture (E4.4). */
 const EXPECTED_NOVEMBER = [
-  { date: '2026-11-02', type: 'expense', amountCents: 5980, merchant: 'CITYfit Fitness- und Gesund-heitsclub Musterstadt GmbH', city: '', bankType: '', pending: false },
-  { date: '2026-11-02', type: 'expense', amountCents: 36921, merchant: 'ARAG SE', city: '', bankType: '', pending: false },
-  { date: '2026-11-02', type: 'expense', amountCents: 112000, merchant: 'Erika und Hans Muster', city: '', bankType: 'Dauerauftrag', pending: false },
-  { date: '2026-10-30', type: 'expense', amountCents: 364, merchant: 'REWE', city: '', bankType: 'Vorgemerkt', pending: true },
-  { date: '2026-10-30', type: 'expense', amountCents: 968, merchant: 'REWE', city: '', bankType: 'Vorgemerkt', pending: true },
-  { date: '2026-10-30', type: 'expense', amountCents: 340, merchant: 'KANTINE MUSTERSTADT M211', city: 'Musterstadt', bankType: 'Vorgemerkt', pending: true },
-  { date: '2026-10-30', type: 'expense', amountCents: 670, merchant: 'BrotHaus', city: '', bankType: 'Vorgemerkt', pending: true },
-  { date: '2026-10-30', type: 'expense', amountCents: 5955, merchant: 'Muster Aktiengesellschaft', city: '', bankType: 'Lastschrift', pending: false },
-  { date: '2026-10-26', type: 'expense', amountCents: 2600, merchant: "L'Osteria", city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-26', type: 'expense', amountCents: 558, merchant: 'BrotHaus', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-26', type: 'expense', amountCents: 4837, merchant: 'REWE', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-26', type: 'income', amountCents: 300000, merchant: 'Max Mustermann', city: '', bankType: 'Gutschrift (Echtzeit)', pending: false },
-  { date: '2026-10-21', type: 'expense', amountCents: 4215, merchant: 'Lidl', city: '', bankType: 'Kartenzahlung', pending: false },
-  { date: '2026-10-21', type: 'expense', amountCents: 2999, merchant: 'Vodafone GmbH', city: '', bankType: 'Lastschrift', pending: false },
-  { date: '2026-10-20', type: 'expense', amountCents: 1099, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false },
+  { date: '2026-11-02', type: 'expense', amountCents: 5980, merchant: 'CITYfit Fitness- und Gesund-heitsclub Musterstadt GmbH', city: '', bankType: '', pending: false, dateGuessed: false },
+  { date: '2026-11-02', type: 'expense', amountCents: 36921, merchant: 'ARAG SE', city: '', bankType: '', pending: false, dateGuessed: false },
+  { date: '2026-11-02', type: 'expense', amountCents: 112000, merchant: 'Erika und Hans Muster', city: '', bankType: 'Dauerauftrag', pending: false, dateGuessed: false },
+  { date: '2026-10-30', type: 'expense', amountCents: 364, merchant: 'REWE', city: '', bankType: 'Vorgemerkt', pending: true, dateGuessed: false },
+  { date: '2026-10-30', type: 'expense', amountCents: 968, merchant: 'REWE', city: '', bankType: 'Vorgemerkt', pending: true, dateGuessed: false },
+  { date: '2026-10-30', type: 'expense', amountCents: 340, merchant: 'KANTINE MUSTERSTADT M211', city: 'Musterstadt', bankType: 'Vorgemerkt', pending: true, dateGuessed: false },
+  { date: '2026-10-30', type: 'expense', amountCents: 670, merchant: 'BrotHaus', city: '', bankType: 'Vorgemerkt', pending: true, dateGuessed: false },
+  { date: '2026-10-30', type: 'expense', amountCents: 5955, merchant: 'Muster Aktiengesellschaft', city: '', bankType: 'Lastschrift', pending: false, dateGuessed: false },
+  { date: '2026-10-26', type: 'expense', amountCents: 2600, merchant: "L'Osteria", city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-26', type: 'expense', amountCents: 558, merchant: 'BrotHaus', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-26', type: 'expense', amountCents: 4837, merchant: 'REWE', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-26', type: 'income', amountCents: 300000, merchant: 'Max Mustermann', city: '', bankType: 'Gutschrift (Echtzeit)', pending: false, dateGuessed: false },
+  { date: '2026-10-21', type: 'expense', amountCents: 4215, merchant: 'Lidl', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-21', type: 'expense', amountCents: 2999, merchant: 'Vodafone GmbH', city: '', bankType: 'Lastschrift', pending: false, dateGuessed: false },
+  { date: '2026-10-20', type: 'expense', amountCents: 1099, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+];
+
+/** Ergebnistabelle der Fixture „dkb-paste-ohne-tabs“ (Einfügen ohne Tabs). */
+const EXPECTED_PASTE = [
+  { date: '2026-10-29', type: 'income', amountCents: 234578, merchant: 'ArbeitgeberXY AGHR HRSABC', city: '', bankType: 'Lohn Gehalt Rente', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'expense', amountCents: 3400, merchant: 'Bistro Saigon', city: 'Musterdorf', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'expense', amountCents: 340, merchant: 'Coffee Fellows', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-16', type: 'expense', amountCents: 900, merchant: 'CHARGEPOINT LADEN CO', city: 'Berlin', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-15', type: 'expense', amountCents: 5508, merchant: 'Rundfunk ARD, ZDF, DRadio', city: '', bankType: 'Lastschrift', pending: false, dateGuessed: false },
+  { date: '2026-10-14', type: 'expense', amountCents: 30000, merchant: 'Max Mustermann', city: '', bankType: 'Überweisung', pending: false, dateGuessed: false },
+  { date: '2026-10-14', type: 'expense', amountCents: 2897, merchant: 'LidI', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-14', type: 'expense', amountCents: 1299, merchant: 'Spotify', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-12', type: 'income', amountCents: 30376, merchant: 'CHECK24 Umweltbonus GmbH', city: '', bankType: 'Gutschrift', pending: false, dateGuessed: false },
+  { date: '2026-10-12', type: 'expense', amountCents: 3862, merchant: 'Muster Apotheke Ba Che', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
+  { date: '2026-10-12', type: 'expense', amountCents: 760, merchant: 'Primo Espresso', city: 'Musterstadt', bankType: '', pending: false, dateGuessed: true },
 ];
 
 function withoutRaw(text: string) {
@@ -82,7 +97,7 @@ describe('parseDkb', () => {
     const result = parseDkb('Aldi\n21.10.26 • Kartenzahlung\n-42,15 €');
     expect(result.unparsedLines).toEqual([]);
     expect(withoutRaw('Aldi\n21.10.26 • Kartenzahlung\n-42,15 €')).toEqual([
-      { date: '2026-10-21', type: 'expense', amountCents: 4215, merchant: 'Aldi', city: '', bankType: 'Kartenzahlung', pending: false },
+      { date: '2026-10-21', type: 'expense', amountCents: 4215, merchant: 'Aldi', city: '', bankType: 'Kartenzahlung', pending: false, dateGuessed: false },
     ]);
   });
 
@@ -188,6 +203,64 @@ describe('parseDkb', () => {
     expect(rows[0].amountCents).toBe(300000);
     expect(rows[0].bankType).toBe('Gutschrift (Echtzeit)');
     expect(rows[0].pending).toBe(false);
+  });
+});
+
+describe('parseDkb: Händler und Datum, Betrag ohne Datum', () => {
+  it('Fixture ohne Tabs liefert die erwartete Tabelle', () => {
+    const text = readFileSync(new URL('./__fixtures__/dkb-paste-ohne-tabs.txt', import.meta.url), 'utf8');
+    const result = parseDkb(text);
+    expect(result.rows.map(({ raw: _raw, ...rest }) => rest)).toEqual(EXPECTED_PASTE);
+    expect(result.unparsedLines).toEqual([]);
+  });
+
+  it('Händler und Datum in einer Zeile mit Betrag in der Folgezeile', () => {
+    const result = parseDkb('Rundfunk ARD 15.10.26 • Lastschrift\n-55,08 €');
+    expect(result.unparsedLines).toEqual([]);
+    expect(withoutRaw('Rundfunk ARD 15.10.26 • Lastschrift\n-55,08 €')).toEqual([
+      { date: '2026-10-15', type: 'expense', amountCents: 5508, merchant: 'Rundfunk ARD', city: '', bankType: 'Lastschrift', pending: false, dateGuessed: false },
+    ]);
+  });
+
+  it('Datum ohne Art ergibt Buchung mit bankType leer', () => {
+    const rows = parseDkb('Händler 15.10.26\n-5,00 €').rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].merchant).toBe('Händler');
+    expect(rows[0].bankType).toBe('');
+    expect(rows[0].date).toBe('2026-10-15');
+  });
+
+  it('Zahl im Händlernamen ist kein Datum', () => {
+    const rows = parseDkb('Firma 2000 GmbH 12.10.26 • Lastschrift\n-1,00 €').rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].merchant).toBe('Firma 2000 GmbH');
+    expect(rows[0].date).toBe('2026-10-12');
+  });
+
+  it('Datums-Token mit ungültigem Datum wird nicht aufgeteilt', () => {
+    const result = parseDkb('Händler 31.02.26 • Kartenzahlung\n-1,00 €');
+    expect(result.rows).toEqual([]);
+    expect(result.unparsedLines).toEqual(['Händler 31.02.26 • Kartenzahlung\n-1,00 €']);
+  });
+
+  it('Betrag ohne pending und ohne Buchung wird ignoriert (Kontostand)', () => {
+    expect(parseDkb('-5,00 €')).toEqual({ rows: [], unparsedLines: [] });
+  });
+
+  it('Buchung ohne Datum übernimmt das Datum der folgenden Zeile', () => {
+    const rows = parseDkb('Aldi\n-5,00 €\nLidl\n21.10.26 • Kartenzahlung\n-1,00 €').rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[0].merchant).toBe('Aldi');
+    expect(rows[0].date).toBe('2026-10-21');
+    expect(rows[0].dateGuessed).toBe(true);
+    expect(rows[1].dateGuessed).toBe(false);
+  });
+
+  it('einzelne Zeile ohne Datum landet in unparsedLines', () => {
+    expect(parseDkb('Aldi').unparsedLines).toEqual(['Aldi']);
+    const result = parseDkb('Aldi\n-5,00 €');
+    expect(result.rows).toEqual([]);
+    expect(result.unparsedLines).toEqual(['Aldi\n-5,00 €']);
   });
 });
 
