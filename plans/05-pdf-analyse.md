@@ -445,7 +445,7 @@ Aufbau: `it.each(cases)('%s', (input, expected, opts) => expect(anonymizeText(in
 | A58 | `Seite 1 von 2` | unverändert | |
 | A59 | `Gutschrift von MAX MUSTERMANN` | `Gutschrift von [EIGENER NAME]` | `{ ownNames: ['Max Mustermann'], extraTerms: [] }` |
 | A60 | `Überweisung an Mustermann, Max` | `Überweisung an [EIGENER NAME], [EIGENER NAME]` | wie A59 |
-| A61 | `Maximilian` | `Maximilian` | wie A59 |
+| A61 | `Maxinor` | `Maxinor` | wie A59 |
 | A62 | `JUERGEN MUELLER` | `[EIGENER NAME]` | `{ ownNames: ['Jürgen Müller'], extraTerms: [] }` |
 | A63 | `Anna von Berg, Seite 1 von 3, Berg` | `[EIGENER NAME], Seite 1 von 3, [EIGENER NAME]` | `{ ownNames: ['Anna von Berg'], extraTerms: [] }` |
 | A64 | `Überweisung an Anna Beispiel 12,00` | `Überweisung an [ENTFERNT] 12,00` | `{ ownNames: [], extraTerms: ['Anna Beispiel'] }` |
