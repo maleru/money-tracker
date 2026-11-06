@@ -110,3 +110,21 @@ export function daysBetween(fromIso: string, toIso: string): number {
   const diff = Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d);
   return Math.round(diff / 86_400_000);
 }
+
+/** '2026-10-29', 3 -> '2026-11-01'; negative n geht zurück. */
+export function addDays(iso: string, n: number): string {
+  const { y, m, d } = splitIso(iso);
+  const t = new Date(Date.UTC(2000, 0, 1));
+  t.setUTCFullYear(y, m - 1, d + n);
+  return `${pad(t.getUTCFullYear(), 4)}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+
+/** Addiert Monate; der Tag wird auf das Monatsende begrenzt ('2027-01-31' + 1 -> '2027-02-28'). */
+export function addMonthsToDate(iso: string, n: number): string {
+  const { y, m, d } = splitIso(iso);
+  const total = y * 12 + (m - 1) + n;
+  const ny = Math.floor(total / 12);
+  const nm = total - ny * 12 + 1;
+  const nd = Math.min(d, daysInMonth(ny, nm));
+  return `${pad(ny, 4)}-${pad(nm)}-${pad(nd)}`;
+}

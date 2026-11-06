@@ -228,6 +228,9 @@
     <button type="button" class="back" onclick={back}>‹ Zurück</button>
     <h1>Importieren</h1>
   </div>
+  <div class="manual-add">
+    <button type="button" onclick={() => navigate('/add')}>✍️ Einzelne Buchung manuell erfassen</button>
+  </div>
 
   {#if step === 'input'}
     <div class="field">
@@ -587,5 +590,20 @@
   .edit-actions {
     display: flex;
     gap: 10px;
+  }
+  .manual-add {
+    margin: 0 0 12px;
+  }
+
+  .manual-add button {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--primary);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
   }
 </style>

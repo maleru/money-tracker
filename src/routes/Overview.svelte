@@ -7,7 +7,7 @@
   import TransactionRow from '../components/TransactionRow.svelte';
   import { backupReminder } from '../lib/backup/reminder';
   import { childrenOf, categoryLabel } from '../lib/categoryTree';
-  import { currentMonthKey, formatDate, monthLabel, todayIso } from '../lib/dates';
+  import { currentMonthKey, daysBetween, formatDate, monthKey, monthLabel, todayIso } from '../lib/dates';
   import { formatCents } from '../lib/money';
   import { plannedThisMonth } from '../lib/recurring';
   import { navigate } from '../lib/router';
@@ -19,21 +19,78 @@
     settings,
     transactions,
   } from '../lib/state/data';
-  import { backupBannerDismissed, selectedMonth } from '../lib/state/ui';
+  import { backupBannerDismissed, overviewMode, selectedMonth } from '../lib/state/ui';
   import { creditCardReconciliation } from '../lib/stats/creditCard';
   import { budgetStatus } from '../lib/stats/budget';
   import { formatSavingsRate, inMonth, summarizeMonth, surplusLabel } from '../lib/stats/month';
   import { transferFlows } from '../lib/stats/transfers';
+  import { SALARY_MAX_AGE_DAYS, salaryPeriods, summarizeRange } from '../lib/stats/salaryPeriod';
 
   const FALLBACK_COLOR = '#9ca3af';
 
   const reminderText = $derived(backupReminder($settings, $transactions.length, todayIso()));
-  const summary = $derived(summarizeMonth($transactions, $selectedMonth, $categoryMap));
+  const periods = $derived(salaryPeriods($transactions, $categories, todayIso()));
+  // null = automatisch letzter Zeitraum. Ändert sich die Anzahl der Zeiträume, gilt wieder der letzte.
+  let pick = $state<{ count: number; index: number } | null>(null);
+  const periodIndex = $derived(
+    periods.length === 0
+      ? 0
+      : pick && pick.count === periods.length
+        ? Math.min(Math.max(pick.index, 0), periods.length - 1)
+        : periods.length - 1,
+  );
+  const period = $derived(periods[periodIndex] ?? null);
+  const lastStale = $derived(periods.length > 0 && !periods[periods.length - 1].isCurrent);
+  const salaryActive = $derived(
+    $overviewMode === 'salary' && period !== null && !(lastStale && periodIndex === periods.length - 1),
+  );
+  const summary = $derived(
+    salaryActive && period
+      ? summarizeRange($transactions, period.start, period.end, $categories)
+      : summarizeMonth($transactions, $selectedMonth, $categoryMap),
+  );
+  const balanceLabel = $derived(
+    salaryActive ? (summary.balanceCents >= 0 ? 'Verfügbar' : 'Überzogen') : surplusLabel(summary.balanceCents),
+  );
+  const periodLabel = $derived(
+    period === null
+      ? ''
+      : period.isCurrent
+        ? `Seit Gehalt am ${shortDate(period.start)}`
+        : `${shortDate(period.start)} – ${shortDate(period.end)}`,
+  );
+  const nextHint = $derived(
+    salaryActive && period && period.isCurrent && period.nextExpected
+      ? { days: Math.max(0, daysBetween(todayIso(), period.nextExpected)), date: shortDate(period.nextExpected) }
+      : null,
+  );
+  const fallbackNote = $derived(
+    $overviewMode !== 'salary'
+      ? null
+      : periods.length === 0
+        ? 'Noch kein Gehalt gefunden. Weise deiner Gehaltsbuchung die Kategorie „Gehalt“ zu, dann rechnet die Übersicht vom Gehaltseingang bis zum nächsten.'
+        : salaryActive
+          ? null
+          : `Das letzte Gehalt liegt über ${SALARY_MAX_AGE_DAYS} Tage zurück. Angezeigt wird der Kalendermonat.`,
+  );
+
+  function setPeriod(i: number): void {
+    pick = { count: periods.length, index: i };
+  }
+
+  /** '2026-10-29' -> '29.10.' */
+  function shortDate(iso: string): string {
+    return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.`;
+  }
   const flows = $derived(transferFlows($transactions, $selectedMonth, $categoryMap));
   const cc = $derived(creditCardReconciliation($transactions, $accounts, $selectedMonth, $categoryMap));
   const isCurrentMonth = $derived($selectedMonth === currentMonthKey());
   const planned = $derived(isCurrentMonth ? plannedThisMonth($recurring, todayIso()) : []);
-  const recent = $derived($transactions.filter((tx) => inMonth(tx, $selectedMonth)).slice(0, 5));
+  const recent = $derived(
+    salaryActive && period
+      ? $transactions.filter((tx) => tx.date >= period.start && tx.date <= period.end).slice(0, 5)
+      : $transactions.filter((tx) => inMonth(tx, $selectedMonth)).slice(0, 5),
+  );
   const segments = $derived(
     summary.expenseByCategory.map((c) => ({
       value: c.totalCents,
@@ -52,11 +109,12 @@
   );
 
   function openCategory(id: string): void {
+    const month = salaryActive && period ? monthKey(period.start) : $selectedMonth;
     if (childrenOf(id, $categories, true).length > 0) {
-      navigate('/category/' + encodeURIComponent(id) + '?month=' + $selectedMonth);
+      navigate('/category/' + encodeURIComponent(id) + '?month=' + month);
       return;
     }
-    navigate('/transactions?month=' + $selectedMonth + '&category=' + encodeURIComponent(id));
+    navigate('/transactions?month=' + month + '&category=' + encodeURIComponent(id));
   }
 </script>
 
@@ -71,11 +129,52 @@
     </div>
   {/if}
 
-  <MonthSwitcher month={$selectedMonth} onchange={(m) => selectedMonth.set(m)} />
+  <div class="segmented" role="group" aria-label="Zeitraum der Übersicht">
+    <button
+      type="button"
+      class:on={$overviewMode === 'salary'}
+      aria-pressed={$overviewMode === 'salary'}
+      onclick={() => overviewMode.set('salary')}>Seit Gehalt</button
+    >
+    <button
+      type="button"
+      class:on={$overviewMode === 'month'}
+      aria-pressed={$overviewMode === 'month'}
+      onclick={() => overviewMode.set('month')}>Kalendermonat</button
+    >
+  </div>
+
+  {#if fallbackNote}
+    <div class="card note" role="status">{fallbackNote}</div>
+  {/if}
+
+  {#if salaryActive}
+    <div class="period-switcher">
+      <button
+        type="button"
+        aria-label="Vorheriger Zeitraum"
+        disabled={periodIndex <= 0}
+        onclick={() => setPeriod(periodIndex - 1)}>‹</button
+      >
+      <span class="period-label">{periodLabel}</span>
+      <button
+        type="button"
+        aria-label="Nächster Zeitraum"
+        disabled={periodIndex >= periods.length - 1}
+        onclick={() => setPeriod(periodIndex + 1)}>›</button
+      >
+    </div>
+  {:else}
+    <MonthSwitcher month={$selectedMonth} onchange={(m) => selectedMonth.set(m)} />
+  {/if}
 
   {#if summary.count === 0}
     <div class="card empty">
-      <p>Noch keine Buchungen im {monthLabel($selectedMonth)}</p>
+      {#if salaryActive}
+        <p>Noch keine Buchungen in diesem Zeitraum</p>
+      {:else}
+        <p>Noch keine Buchungen im {monthLabel($selectedMonth)}</p>
+      {/if}
       <div class="empty-actions">
         <button type="button" class="btn btn-primary" onclick={() => navigate('/add')}>Ausgabe erfassen</button>
         <button type="button" class="btn btn-secondary" onclick={() => navigate('/add?type=income')}>Einnahme erfassen</button>
@@ -93,16 +192,25 @@
         <AmountText cents={summary.expenseCents} type="expense" />
       </div>
       <div class="card tile">
-        <span class="muted label">{surplusLabel(summary.balanceCents)}</span>
+        <span class="muted label">{balanceLabel}</span>
         <AmountText cents={summary.balanceCents} type="balance" />
         {#if summary.savingsRate !== null}
           <span class="rate" class:expense={summary.savingsRate < 0}>Sparquote {savingsText}</span>
         {/if}
       </div>
     </div>
-    <p class="muted tiles-hint">
-      Überschuss = Einnahmen minus Ausgaben, ohne Umbuchungen.{#if isCurrentMonth} Laufender Monat: Einnahmen wie das Gehalt können noch fehlen.{/if}
-    </p>
+    {#if salaryActive}
+      <p class="muted tiles-hint">Verfügbar = Einnahmen minus Ausgaben seit dem Gehaltseingang, ohne Umbuchungen.</p>
+      {#if nextHint}
+        <p class="muted tiles-hint">
+          Noch {nextHint.days} Tage bis zum nächsten Gehalt (voraussichtlich {nextHint.date})
+        </p>
+      {/if}
+    {:else}
+      <p class="muted tiles-hint">
+        Überschuss = Einnahmen minus Ausgaben, ohne Umbuchungen.{#if isCurrentMonth} Laufender Monat: Einnahmen wie das Gehalt können noch fehlen.{/if}
+      </p>
+    {/if}
 
     {#if summary.expenseByCategory.length > 0}
       <section class="section">
@@ -113,7 +221,7 @@
         <div class="list legend">
           {#each summary.expenseByCategory as c (c.categoryId)}
             {@const cat = $categoryMap.get(c.categoryId)}
-            {@const budget = budgetById.get(c.categoryId)}
+            {@const budget = salaryActive ? undefined : budgetById.get(c.categoryId)}
             <button type="button" class="list-item" class:with-budget={budget !== undefined} onclick={() => openCategory(c.categoryId)}>
               <span class="dot" style:background={cat?.color ?? FALLBACK_COLOR} aria-hidden="true"></span>
               <CategoryIcon category={cat} size={32} />
@@ -147,7 +255,11 @@
       </section>
     {/if}
 
-    {#if hasReserves}
+    {#if salaryActive}
+      <p class="muted hint note-line">Rücklagen und Kreditkarten-Abgleich findest du in der Ansicht „Kalendermonat“.</p>
+    {/if}
+
+    {#if !salaryActive && hasReserves}
       <section class="section">
         <h2>Rücklagen</h2>
         <div class="card rows">
@@ -164,7 +276,7 @@
       </section>
     {/if}
 
-    {#if cc.hasData}
+    {#if !salaryActive && cc.hasData}
       <section class="section">
         <h2>Kreditkarten-Abgleich</h2>
         <div class="card rows">
@@ -372,5 +484,71 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 4px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .segmented button {
+    padding: 8px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .segmented button.on {
+    background: var(--primary);
+    color: #fff;
+  }
+
+  .note {
+    margin-bottom: 12px;
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .note-line {
+    margin: 0 4px 16px;
+  }
+
+  .period-switcher {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .period-switcher button {
+    min-width: 44px;
+    min-height: 44px;
+    border: none;
+    background: transparent;
+    color: var(--primary);
+    font: inherit;
+    font-size: 24px;
+    cursor: pointer;
+  }
+
+  .period-switcher button:disabled {
+    color: var(--muted);
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .period-label {
+    font-weight: 600;
+    text-align: center;
   }
 </style>

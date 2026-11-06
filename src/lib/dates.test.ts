@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  addDays,
+  addMonthsToDate,
   MONTH_NAMES,
   MONTH_SHORT,
   WEEKDAY_NAMES,
@@ -172,5 +174,55 @@ describe('daysBetween', () => {
   it('ist robust gegenüber Sommerzeit', () => {
     expect(daysBetween('2026-03-28', '2026-03-30')).toBe(2);
     expect(daysBetween('2026-10-24', '2026-10-26')).toBe(2);
+  });
+});
+
+describe('addDays', () => {
+  it('addiert Tage über Monats- und Jahresgrenzen', () => {
+    expect(addDays('2026-10-29', 3)).toBe('2026-11-01');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addDays('2028-02-28', 1)).toBe('2028-02-29');
+  });
+
+  it('geht rückwärts und bei 0 unverändert', () => {
+    expect(addDays('2026-11-01', -1)).toBe('2026-10-31');
+    expect(addDays('2026-10-29', 0)).toBe('2026-10-29');
+  });
+});
+
+describe('addDays und Sommerzeit', () => {
+  it('springt am Tag der Umstellung im Frühjahr korrekt (2026-03-29)', () => {
+    expect(addDays('2026-03-28', 1)).toBe('2026-03-29');
+    expect(addDays('2026-03-28', 2)).toBe('2026-03-30');
+    expect(addDays('2026-03-29', -1)).toBe('2026-03-28');
+  });
+
+  it('springt am Tag der Umstellung im Herbst korrekt (2026-10-25)', () => {
+    expect(addDays('2026-10-24', 1)).toBe('2026-10-25');
+    expect(addDays('2026-10-24', 2)).toBe('2026-10-26');
+    expect(addDays('2026-10-26', -2)).toBe('2026-10-24');
+  });
+
+  it('ist konsistent mit daysBetween über die Umstellung', () => {
+    expect(daysBetween('2026-03-28', addDays('2026-03-28', 10))).toBe(10);
+    expect(daysBetween('2026-10-24', addDays('2026-10-24', 10))).toBe(10);
+  });
+});
+
+describe('addMonthsToDate', () => {
+  it('begrenzt den Tag auf das Monatsende', () => {
+    expect(addMonthsToDate('2027-01-31', 1)).toBe('2027-02-28');
+    expect(addMonthsToDate('2028-01-31', 1)).toBe('2028-02-29');
+    expect(addMonthsToDate('2026-08-31', 1)).toBe('2026-09-30');
+  });
+
+  it('behält den Tag, wenn er im Zielmonat existiert', () => {
+    expect(addMonthsToDate('2026-10-29', 1)).toBe('2026-11-29');
+    expect(addMonthsToDate('2026-10-29', 0)).toBe('2026-10-29');
+  });
+
+  it('geht über Jahresgrenzen, vorwärts und rückwärts', () => {
+    expect(addMonthsToDate('2026-12-15', 1)).toBe('2027-01-15');
+    expect(addMonthsToDate('2026-01-15', -1)).toBe('2025-12-15');
   });
 });

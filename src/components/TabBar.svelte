@@ -1,6 +1,5 @@
 <script lang="ts">
-  import ActionSheet, { type ActionSheetItem } from './ActionSheet.svelte';
-  import { navigate, route } from '../lib/router';
+  import { route } from '../lib/router';
 
   const SHOW_STATS = true;
 
@@ -10,24 +9,6 @@
   }
 
   const current = $derived($route.path);
-
-  let sheetOpen = $state(false);
-  let addButton = $state<HTMLButtonElement | null>(null);
-
-  const addItems: ActionSheetItem[] = [
-    { label: '✍️ Buchung erfassen', onselect: () => navigate('/add') },
-    { label: '📥 Importieren (Text/Screenshot)', onselect: () => navigate('/import') },
-  ];
-
-  function closeSheet(): void {
-    sheetOpen = false;
-    addButton?.focus();
-  }
-
-  // Bei jedem Routenwechsel (z. B. Zurück-Geste) Sheet schließen.
-  $effect(() => {
-    if (current) sheetOpen = false;
-  });
 </script>
 
 <nav class="tabbar" aria-label="Hauptnavigation">
@@ -44,15 +25,13 @@
     <span class="icon" aria-hidden="true">📋</span>
     <span class="label">Buchungen</span>
   </a>
-  <button
-    type="button"
+  <a
     class="add"
-    aria-label="Neu: Buchung erfassen oder importieren"
-    aria-haspopup="dialog"
-    aria-expanded={sheetOpen}
-    bind:this={addButton}
-    onclick={() => (sheetOpen = true)}
-  >＋</button>
+    class:active={isActive('/import', current)}
+    href="#/import"
+    aria-label="Importieren"
+    aria-current={isActive('/import', current) ? 'page' : undefined}
+  >＋</a>
   {#if SHOW_STATS}
     <a
       class="tab"
@@ -74,8 +53,6 @@
     <span class="label">Einstellungen</span>
   </a>
 </nav>
-
-<ActionSheet open={sheetOpen} title="Neue Buchung" items={addItems} onclose={closeSheet} />
 
 <style>
   .tabbar {
