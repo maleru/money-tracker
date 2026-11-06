@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "postinstall": "node scripts/copy-tesseract.mjs",
-    "prebuild": "node scripts/copy-tesseract.mjs",
+    "postinstall": "node scripts/copy-tesseract.mjs && node scripts/copy-pdfjs.mjs",
+    "prebuild": "node scripts/copy-tesseract.mjs && node scripts/copy-pdfjs.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json",
@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "dexie": "^4.4.7",
+    "pdfjs-dist": "^5.7.284",
     "tesseract.js": "^7.0.0"
   }
 }

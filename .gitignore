@@ -16,6 +16,9 @@ dev-dist
 # OCR-Daten (werden per postinstall aus node_modules kopiert)
 public/tesseract/
 
+# PDF-Leser (wird per postinstall aus node_modules kopiert)
+public/pdfjs/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

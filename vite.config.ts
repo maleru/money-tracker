@@ -39,13 +39,18 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
-        // OCR-Dateien (~30 MB) bleiben aus dem Precache, damit die Installation leicht bleibt.
-        globIgnores: ['**/tesseract/**'],
+        // OCR- und PDF-Dateien bleiben aus dem Precache, damit die Installation leicht bleibt.
+        globIgnores: ['**/tesseract/**', '**/pdfjs/**'],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.includes('/tesseract/'),
             handler: 'CacheFirst',
             options: { cacheName: 'tesseract', expiration: { maxEntries: 20 } },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/pdfjs/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'pdfjs', expiration: { maxEntries: 250 } },
           },
         ],
       },
