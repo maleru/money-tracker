@@ -13,7 +13,7 @@
     type ImportItem,
   } from '../lib/import/importItems';
   import { recognizeImage } from '../lib/import/ocr';
-  import { parseBankText } from '../lib/import/parse';
+  import { parseBankText, type ImportFormat } from '../lib/import/parse';
   import { centsToInput, parseAmountToCents } from '../lib/money';
   import { back, navigate } from '../lib/router';
   import {
@@ -43,6 +43,7 @@
   let parseError = $state('');
   let busy = $state(false);
   let accountId = $state(DEFAULT_ACCOUNT_ID);
+  let format = $state<ImportFormat>('auto');
   // Kontext der letzten Erkennung; wird für die Bearbeitung (Kategorie-Vorschlag) gebraucht.
   let importCtx: ImportContext | null = null;
 
@@ -73,6 +74,18 @@
     { value: 'in', label: 'Zugang aufs Konto' },
   ];
 
+  const FORMAT_OPTIONS: { value: ImportFormat; label: string }[] = [
+    { value: 'auto', label: 'Automatisch' },
+    { value: 'giro', label: '🏦 Girokonto' },
+    { value: 'credit', label: '💳 Kreditkarte' },
+  ];
+
+  /** Beim Kontowechsel das passende Format vorschlagen (bleibt manuell änderbar). */
+  function onAccountChange(): void {
+    format = $accountMap.get(accountId)?.kind === 'credit_card' ? 'credit' : 'auto';
+    parseError = '';
+  }
+
   async function pasteFromClipboard(): Promise<void> {
     try {
       text = await navigator.clipboard.readText();
@@ -84,9 +97,12 @@
 
   function recognize(): void {
     if (text.trim() === '') return;
-    const result = parseBankText(text);
+    const result = parseBankText(text, format);
     if (result.rows.length === 0) {
-      parseError = 'Keine Buchungen erkannt';
+      parseError =
+        format === 'credit'
+          ? 'Keine Buchungen im Kreditkarten-Format erkannt'
+          : 'Keine Buchungen erkannt';
       return;
     }
     parseError = '';
@@ -235,24 +251,45 @@
   {#if step === 'input'}
     <div class="field">
       <label for="import-account">Konto</label>
-      <select id="import-account" aria-label="Konto" bind:value={accountId}>
+      <select id="import-account" aria-label="Konto" bind:value={accountId} onchange={onAccountChange}>
         {#each selectableAccounts($accounts, accountId) as acc (acc.id)}
           <option value={acc.id}>
             {acc.icon} {acc.name}{acc.archived ? ' (archiviert)' : ''}
           </option>
         {/each}
       </select>
-      {#if selectedAccount?.kind === 'credit_card'}
-        <p class="muted small hint">
-          Das Format der Kreditkarten-App wird noch nicht gesondert erkannt (DKB- bzw. allgemeiner Parser). Format der
-          Kreditkarten-App ggf. später anpassen.
-        </p>
+    </div>
+
+    <div class="field">
+      <span class="label">Format des Textes</span>
+      <div class="segmented" role="group" aria-label="Format des Textes">
+        {#each FORMAT_OPTIONS as option (option.value)}
+          <button
+            type="button"
+            class:active={format === option.value}
+            aria-pressed={format === option.value}
+            onclick={() => {
+              format = option.value;
+              parseError = '';
+            }}
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
+      {#if format === 'credit' && selectedAccount !== null && selectedAccount.kind !== 'credit_card'}
+        <p class="muted small hint">Hinweis: Das gewählte Konto ist keine Kreditkarte.</p>
       {/if}
     </div>
 
     <div class="card guide">
-      1. Screenshot der Umsätze in der DKB-App machen. 2. Screenshot öffnen, Text lange drücken → ‚Alles auswählen‘ →
-      ‚Kopieren‘. 3. Hier einfügen.
+      {#if format === 'credit'}
+        Umsätze aus dem Kreditkarten-Kontoauszug markieren, kopieren und hier einfügen. Erwartet werden je Buchung
+        drei Zeilen: „Datum Datum Umsatzart“, „Händler, Ort“ und „Kartenendziffern Betrag“.
+      {:else}
+        1. Screenshot der Umsätze in der DKB-App machen. 2. Screenshot öffnen, Text lange drücken → ‚Alles auswählen‘ →
+        ‚Kopieren‘. 3. Hier einfügen.
+      {/if}
     </div>
 
     <div class="field">

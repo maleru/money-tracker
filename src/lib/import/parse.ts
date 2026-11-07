@@ -1,6 +1,7 @@
 import type { Category, MerchantRule, Transaction, TxType } from '../types';
 import { FALLBACK_EXPENSE_CATEGORY, FALLBACK_INCOME_CATEGORY } from '../db/defaults';
 import { lastCategoryForMerchant, suggestCategory } from '../merchant';
+import { looksLikeCreditCard, parseCreditCard } from './creditCardParser';
 import { parseDkb } from './dkbParser';
 import { parseGeneric } from './genericParser';
 
@@ -24,8 +25,18 @@ export interface ParseResult {
   unparsedLines: string[];
 }
 
-/** DKB-Parser; liefert er 0 Zeilen, greift der generische Parser. */
-export function parseBankText(text: string): ParseResult {
+/** Textformat für den Import: automatisch erkennen, Girokonto (DKB-App) oder Kreditkarten-Umsatzliste. */
+export type ImportFormat = 'auto' | 'giro' | 'credit';
+
+/**
+ * 'credit': Kreditkarten-Parser. 'auto': Kreditkarten-Parser, wenn das Format erkannt wird und Zeilen liefert.
+ * Sonst DKB-Parser; liefert er 0 Zeilen, greift der generische Parser.
+ */
+export function parseBankText(text: string, format: ImportFormat = 'auto'): ParseResult {
+  if (format === 'credit' || (format === 'auto' && looksLikeCreditCard(text))) {
+    const cc = parseCreditCard(text);
+    if (format === 'credit' || cc.rows.length > 0) return cc;
+  }
   const dkb = parseDkb(text);
   if (dkb.rows.length > 0) return dkb;
   return parseGeneric(text);
