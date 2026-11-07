@@ -429,6 +429,16 @@
     <div class="actions">
       <button type="submit" class="btn btn-primary" disabled={busy}>Speichern</button>
       {#if isEdit}
+        {#if existing && !existing.recurringId}
+          <button
+            type="button"
+            class="btn btn-secondary"
+            disabled={busy}
+            onclick={() => navigate(`/settings/recurring?from=${encodeURIComponent(existing.id)}`)}
+          >
+            Zu wiederkehrenden Buchungen hinzufügen
+          </button>
+        {/if}
         <button type="button" class="btn btn-danger" disabled={busy} onclick={() => void remove()}>Löschen</button>
       {:else}
         <button type="button" class="btn btn-secondary" disabled={busy} onclick={() => void save(true)}>

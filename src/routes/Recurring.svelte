@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { get } from 'svelte/store';
   import AmountText from '../components/AmountText.svelte';
   import CategoryIcon from '../components/CategoryIcon.svelte';
   import { selectableAccounts } from '../lib/accounts';
   import { categoryOptions } from '../lib/categoryTree';
   import { DEFAULT_ACCOUNT_ID, fallbackCategoryFor } from '../lib/db/defaults';
-  import { currentMonthKey } from '../lib/dates';
+  import { currentMonthKey, formatDate, monthKey } from '../lib/dates';
   import { centsToInput, parseAmountToCents } from '../lib/money';
-  import { back } from '../lib/router';
+  import { back, route } from '../lib/router';
   import {
     accounts,
     accountMap,
@@ -16,9 +18,11 @@
     recurring,
     runRecurring,
     saveRecurring,
+    transactions,
+    updateTransaction,
   } from '../lib/state/data';
   import { showToast } from '../lib/state/toast';
-  import type { RecurringTemplate, TxDirection, TxType } from '../lib/types';
+  import type { RecurringTemplate, Transaction, TxDirection, TxType } from '../lib/types';
 
   // null = Formular geschlossen, 'new' = neue Vorlage, sonst die id der bearbeiteten Vorlage.
   let editingId = $state<string | null>(null);
@@ -92,6 +96,34 @@
     endMonth = t.endMonth ?? '';
   }
 
+  // Bestehende Buchung als Vorlage (Aufruf über '#/settings/recurring?from=<id>').
+  let sourceTx = $state<Transaction | undefined>(undefined);
+
+  function openFromTransaction(tx: Transaction): void {
+    clearErrors();
+    editingId = 'new';
+    sourceTx = tx;
+    type = tx.type;
+    direction = tx.direction ?? 'out';
+    accountId = tx.accountId;
+    amount = centsToInput(tx.amountCents);
+    categoryId = tx.categoryId;
+    merchant = tx.merchant;
+    note = tx.note;
+    day = Number(tx.date.slice(8, 10));
+    startMonth = monthKey(tx.date);
+    endMonth = '';
+  }
+
+  {
+    const fromId = untrack(() => $route.query.get('from'));
+    if (fromId) {
+      const tx = get(transactions).find((t) => t.id === fromId);
+      if (tx) openFromTransaction(tx);
+      else showToast('Buchung nicht gefunden');
+    }
+  }
+
   function setType(next: TxType): void {
     if (type === next) return;
     type = next;
@@ -147,8 +179,15 @@
         active: editing?.active ?? true,
         updatedAt: new Date().toISOString(),
       };
+      // Vorlage aus bestehender Buchung: Liegt die Buchung im Startmonat, gilt dieser Monat als bereits
+      // erzeugt und die Buchung wird mit der Vorlage verknüpft (verhindert eine Doppelbuchung).
+      const fromTx = editingId === 'new' ? sourceTx : undefined;
+      const linkSource = fromTx !== undefined && fromTx.recurringId === null && monthKey(fromTx.date) === startMonth;
+      if (linkSource) template.lastGeneratedMonth = startMonth;
       await saveRecurring(template);
+      if (linkSource && fromTx) await updateTransaction({ ...fromTx, recurringId: template.id });
       editingId = null;
+      sourceTx = undefined;
       let created = 0;
       try {
         created = await runRecurring();
@@ -279,7 +318,15 @@
 
     <div class="actions">
       <button type="submit" class="btn btn-primary" disabled={busy}>Speichern</button>
-      <button type="button" class="btn btn-secondary" disabled={busy} onclick={() => (editingId = null)}>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        disabled={busy}
+        onclick={() => {
+          editingId = null;
+          sourceTx = undefined;
+        }}
+      >
         Abbrechen
       </button>
       {#if editing}
@@ -331,10 +378,24 @@
   {#if editingId === 'new'}
     <div class="card new-form">
       <h2>Neue wiederkehrende Buchung</h2>
+      {#if sourceTx}
+        <p class="muted hint">
+          Vorlage: Buchung vom {formatDate(sourceTx.date)}{sourceTx.merchant ? ` – ${sourceTx.merchant}` : ''}
+        </p>
+      {/if}
       {@render form()}
     </div>
   {:else}
-    <button type="button" class="btn btn-primary add" onclick={openNew}>＋ Neue wiederkehrende Buchung</button>
+    <button
+      type="button"
+      class="btn btn-primary add"
+      onclick={() => {
+        sourceTx = undefined;
+        openNew();
+      }}
+    >
+      ＋ Neue wiederkehrende Buchung
+    </button>
   {/if}
 </div>
 
